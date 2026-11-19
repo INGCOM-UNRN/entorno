@@ -379,3 +379,7 @@ install-lib.sh mi-usuario/mi-libreria-matematica
 
 *   **Para actualizar todo el entorno (paquetes, VS Code y WezTerm):** Volvé a ejecutar `setup.ps1`. El script respetará tu carpeta `vscode/data` (donde se guardan tus extensiones y configuraciones) actualizando únicamente la base del editor. Los pines de `versions.json` garantizan que todos obtengan las mismas versiones dentro del cuatrimestre; usá `-Latest` para saltearlos.
 *   **Para regenerar el entorno de cero:** Borrá las carpetas `msys64`, `vscode` y `wezterm` (o ejecutá `desinstalar.ps1`), resguardando `vscode/data` si querés conservar la configuración del editor, y volvé a ejecutar `setup.ps1`.
+
+## Contacto
+
+Martín René Vilugrón - mrvilugron@unrn.edu.ar - Ingeniería en Computación UNRN Andina
