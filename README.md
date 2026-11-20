@@ -1,400 +1,73 @@
-# Entorno de Desarrollo Portable en C y Python (Windows y Linux)
+# Entorno de Desarrollo Portable en C y Python
 
-Entorno de desarrollo unificado y autocontenido para la cátedra de Programación 1 (UNRN Andina). Provee tres modalidades de despliegue:
-1. **Windows**: Entorno portable completo con terminal acelerada por GPU (WezTerm), userland Unix (MSYS2 UCRT64), compilador GCC nativo, Python 3 con `uv`, VS Code Portable preconfigurado y lanzadores invisibles `.exe`.
-2. **macOS y Linux personal (una línea)**: `curl -fsSL https://raw.githubusercontent.com/INGCOM-UNRN-P1/entorno/main/install.sh | bash` instala en `~/p1/entorno` con espacio de trabajo `~/p1/dev`, en modo **separado** (HOME aislado, se entra con `~/p1/entrar`) o **integrado** a tu terminal. Ver [docs/personal-unix.md](docs/personal-unix.md).
-3. **Linux Nativo y WSL**: Activación de sesión modular y no invasiva (`source linux/activate.sh`) con redirección aislada de `$HOME`, toolchain C local (`local/`), paridad funcional total en comandos de cátedra y política estricta de cero modificaciones al sistema host (sin `sudo`).
+Entorno de desarrollo unificado y autocontenido para la cátedra de Programación 1 (UNRN
+Andina): las mismas herramientas y comandos para todos los estudiantes, sin tocar la
+configuración de la computadora.
 
-## Componentes Principales
+## Instalación
 
-*   **Terminal de Consola:** WezTerm Portable (GPU-accelerated, configurado con el tema Tokyo Night y la tipografía JetBrains Mono).
-*   **Userland Unix:** Bash, coreutils, grep, sed, awk, tar, git, ssh y GitHub CLI (`gh`).
-*   **Compilador de C/C++:** GCC / G++ (MinGW-w64 GCC) optimizado para UCRT (Universal C Runtime).
-*   **Herramientas de Construcción:** `make` (mingw32-make), `cmake`, `ninja`.
-*   **Depurador:** GDB.
-*   **Análisis Estático:** Cppcheck (detección de errores de código, fugas de memoria y comportamientos indefinidos).
-*   **Generador de Documentación:** Doxygen (generación automática de documentación a partir de comentarios de código fuente).
-*   **Lenguaje de Scripting:** Python 3 (nativo UCRT64) con `pip` y `uv` (instalador y resolvedor de paquetes de alto rendimiento).
-*   **Editor de Código:** VS Code Portable (incluye extensiones de C/C++, CMake y Python, con terminal integrada configurada por defecto en UCRT64 Bash).
-*   **Gestor de Paquetes:** `pacman` (nativo de MSYS2).
-*   **Librerías de C Preinstaladas:** `zlib`, `openssl`, `sqlite3`, `curl`.
+### Windows
 
----
+En PowerShell, dentro de una carpeta vacía y sin espacios ni acentos en la ruta (por
+ejemplo `C:\dev\entorno`):
 
-## 🎯 Alcance
-
-### Qué cubre
-- Aprovisionamiento, configuración y mantenimiento de un entorno de desarrollo portable y unificado para C y Python en Windows (MSYS2 UCRT64), WSL y Linux nativo.
-- Scripts de instalación y actualización automática de herramientas de cátedra (`ripley`, `daedalus`, `gcc`, `gdb`, `make`).
-- Perfiles preconfigurados de editores de código (VS Code, Neovim) optimizados para educación universitaria, libres de telemetría e IA invasiva.
-- Batería de validación y autodiagnóstico del entorno de desarrollo (`test_linux_env.sh`, `doctor`).
-
-### Qué no cubre (Límites y Delegación)
-- Calificación de estudiantes ni gestión de aulas virtuales (delegado a `dredd` / `sulaco`).
-- Análisis estático ni verificación de código (el entorno aloja y ejecuta las herramientas, no implementa las reglas).
-
----
-
-## 📋 Requisitos
-
-### Requisitos de Sistema y Entorno
-- Windows 10/11 x64 (PowerShell 5.1+ o 7+, MSYS2 UCRT64) o Linux nativo / WSL (Bash, Python >= 3.10).
-
-### Dependencias Externas y Binarios
-- `curl`, `wget`, `tar`, `gcc`, `gdb`, `make`.
-
-### Integración en el Ecosistema
-- Meta-herramienta consumida por los estudiantes y docentes de la cátedra de Programación 1 (UNRN).
-
----
-
-## Manuales y Documentación
-
-En la carpeta [`docs/`](docs/) disponés de guías completas detalladas:
-
-*   [Manual del Entorno Portable](docs/entorno.md): Arquitectura, inicialización y arranque de servicios.
-*   [Guía de Instalación y Uso en Windows (con Capturas)](docs/windows.md): Procedimiento paso a paso para descargar, instalar y poner en marcha el entorno en Windows.
-*   [Casos de Uso del Entorno](docs/casos-de-uso.md): Situaciones educativas y logísticas (desarrollo offline, laboratorios públicos, consistencia de cátedra) que resuelve el proyecto.
-*   [Documentación de Scripts](docs/scripts.md): Detalle técnico exhaustivo del funcionamiento interno, parámetros y comportamiento de cada script del entorno.
-*   [Manual de Compilación con GCC](docs/compilacion-gcc.md): Flujo de compilación (preprocesado, compilación, ensamble, enlazado) y optimización en C.
-
----
-
-## Estructura del Repositorio
-
-El repositorio está organizado para separar las herramientas ejecutables del host de las configuraciones y scripts de inicialización:
-
-*   [`setup.ps1`](setup.ps1): Script de PowerShell para instalar, regenerar y actualizar la **base** del entorno (MSYS2, uv, Python, gh, jonesy, WezTerm, Ripley) y coordinar los módulos opcionales. Al ejecutarse, actualiza automáticamente todos los scripts del entorno a la última versión (vía Git pull o descargándolos de GitHub) y luego actualiza los componentes instalados. Valida la ruta de instalación y genera el registro `install.log` para troubleshooting.
-*   [`modulos/`](modulos/): Módulos opcionales que se instalan aparte de la base: [`compiladores.ps1`](modulos/compiladores.ps1) (gcc, gdb, make, cmake y herramientas de análisis) y [`vscode.ps1`](modulos/vscode.ps1) (VS Code portable y extensiones). Se lanzan con `instalar-compiladores.bat` / `instalar-vscode.bat` o con el comando `instalar` desde la consola.
-*   [`lib/instalador.ps1`](lib/instalador.ps1): Funciones compartidas por `setup.ps1` y los módulos (descargas con reintentos, caché de la API de GitHub, pines de `versions.json`, pacman, SHA-256).
-*   [`package-env.ps1`](package-env.ps1): Script de PowerShell para empaquetar el entorno completo inicializado en un archivo ZIP para distribución offline.
-*   [`clean-shared-host.ps1`](clean-shared-host.ps1): Script de PowerShell para eliminar credenciales, historial de consola y configuraciones personales al trabajar en una máquina pública o compartida. Restablece VS Code a la configuración por defecto (incluyendo terminal en UCRT64 Bash).
-*   [`desinstalar.ps1`](desinstalar.ps1): Elimina por completo los componentes generados del entorno (MSYS2, VS Code, WezTerm, HOME portable), conservando los scripts del repositorio.
-*   [`customize-terminal.ps1`](customize-terminal.ps1): Script de PowerShell interactivo para personalizar la apariencia de la consola WezTerm (esquema de colores, tamaño de letra, opacidad del fondo y habilitar/desactivar pestañas).
-*   [`customize-terminal.bat`](customize-terminal.bat): Cargador rápido CMD para lanzar el asistente de personalización de consola.
-*   [`fix-antivirus.ps1`](fix-antivirus.ps1): Script de PowerShell para agregar el directorio del entorno portable a las exclusiones de Windows Defender, previniendo falsos positivos del antivirus y errores de memoria ("VirtualProtect failed with code 0x5af") durante la compilación (requiere privilegios de Administrador).
-*   [`bin/install-lib.sh`](bin/install-lib.sh): Script de Bash para compilar e instalar automáticamente librerías de C desde repositorios de GitHub en tu prefijo portable `/ucrt64` (agregado al PATH).
-*   [`bin/uninstall-lib.sh`](bin/uninstall-lib.sh): Desinstala librerías registradas por install-lib usando manifiestos (agregado al PATH).
-*   [`bin/nuevo-proyecto`](bin/nuevo-proyecto): Crea la estructura inicial de un proyecto de cátedra lista para compilar, **con depuración F5 lista** (`.vscode/` con GDB), formato automático (`.clang-format`) y convenciones de editor (`.editorconfig`) (agregado al PATH). Soporta tres modalidades con `--tipo`: `plano` (programa simple con Makefile de cátedra: targets `debug`, `asan`, `test` y `ripley`), `tp` (despliega la plantilla modular de Trabajo Práctico) y `lib` (despliega la plantilla de biblioteca estática).
-*   [`bin/ripley`](bin/ripley): Lanzador del motor de análisis de código C de la cátedra: linting AST, reglas P1, compilación con AddressSanitizer y traducción pedagógica de errores de GCC. Ejecuta el zipapp portable `bin/ripley.pyz` (descargado automáticamente por `setup.ps1` / `update-env.sh` desde los Releases de GitHub) o delega en una instalación nativa (`uv tool install git+https://github.com/INGCOM-UNRN-P1/ripley`). Comandos típicos: `ripley doctor` (diagnóstico), `ripley check .` (auditoría del proyecto).
-*   [`bin/backup`](bin/backup): Respalda el HOME portable y los manifiestos de librerías en un ZIP fechado, excluyendo cachés regenerables. Guardalo fuera del pendrive.
-*   [`bin/restaurar`](bin/restaurar): Restaura un respaldo de `backup` sobre el HOME portable actual e informa cómo reinstalar las librerías registradas.
-*   [`bin/entregar`](bin/entregar): Compila el TP, corre las pruebas de cátedra y lo empaqueta en un ZIP de entrega excluyendo binarios y builds; en proyectos con manifiesto Ripley (`ripley.toml` / `.ripkg`) pre-valida además con `ripley check . --strict` antes de empacar (agregado al PATH).
-*   [`bin/verificar`](bin/verificar): Corrector local: delega en `ripley check .` si el proyecto declara un manifiesto Ripley, o compara la salida del programa contra los casos `tests/caso_NN.in/.out` en modo clásico (agregado al PATH).
-*   [`bin/doctor`](bin/doctor): Verificación rápida de salud del entorno: compila un programa mínimo y valida herramientas e identidad de Git (agregado al PATH).
-*   [`bin/smoke.sh`](bin/smoke.sh): Automatiza las pruebas de aceptación sin GUI del plan (compilación C+cppcheck, Python aislado, CMake+Ninja, librerías con manifiesto). Wrapper `smoke.ps1` en la raíz.
-*   [`bin/instalar`](bin/instalar): Instala un módulo opcional desde la consola (`instalar compiladores`, `instalar vscode`); abre el instalador en una ventana aparte (agregado al PATH).
-*   [`bin/update-packages.sh`](bin/update-packages.sh): Actualiza pacman y garantiza los paquetes de `packages-base.txt` y, si el módulo está instalado, de `packages-compiladores.txt` (agregado al PATH).
-*   [`install-offline.ps1`](install-offline.ps1): Instala el paquete `portable-env-offline.zip` con extracción acelerada y validación estructural (sin internet ni permisos especiales).
-*   [`bin/ayuda`](bin/ayuda): Script de Bash (ejecutable como comando `ayuda`) que muestra una guía de referencia rápida sobre los comandos y herramientas del entorno portable (agregado al PATH).
-*   [`bin/build-launcher.sh`](bin/build-launcher.sh): Script de Bash para descargar y compilar los lanzadores ejecutables del repositorio (`.exe`) desde las fuentes de GitHub (agregado al PATH).
-*   [`bin/customize-bash.sh`](bin/customize-bash.sh): Script de Bash interactivo para personalizar el entorno de Bash y su mensaje de bienvenida, ofreciendo varias plantillas y sugerencias (agregado al PATH).
-*   [`bin/update-env.sh`](bin/update-env.sh): Script de Bash para actualizar los scripts del entorno desde el repositorio de GitHub y opcionalmente relanzar la actualización completa de herramientas nativas (agregado al PATH).
-*   [`bin/configure-git.sh`](bin/configure-git.sh): Script de Bash para configurar rápidamente tu identidad de Git e iniciar sesión en GitHub CLI de forma aislada (agregado al PATH).
-*   [`bin/download-baseline.sh`](bin/download-baseline.sh): Script de Bash para descargar los paquetes MSYS2 necesarios para la instalación inicial directamente a la caché local portable (agregado al PATH).
-*   [`bin/diagnose-env.sh`](bin/diagnose-env.sh): Script de Bash para diagnosticar el estado del entorno portable, las herramientas instaladas (con sus versiones correspondientes), el listado completo de paquetes de pacman y el contenido de `bin/` en un informe detallado (agregado al PATH).
-*   [`launch.bat`](launch.bat): Lanzador silencioso de WezTerm desde CMD.
-*   [`launch.ps1`](launch.ps1): Lanzador de consola WezTerm desde PowerShell (configura la sesión en el entorno de MSYS2 UCRT64).
-*   [`launch-vscode.bat`](launch-vscode.bat): Lanzador silencioso de VS Code desde CMD.
-*   [`launch-vscode.ps1`](launch-vscode.ps1): Lanzador de VS Code desde PowerShell (inyecta la ruta del compilador GCC y las variables locales a la sesión).
-*   [`wezterm.lua.template`](wezterm.lua.template): Plantilla de la configuración portable de WezTerm (apariencia, tipografía y arranque de shell Bash UCRT64); `launch.ps1` genera `wezterm.lua` a partir de ella.
-*   [`launcher/`](launcher/): Directorio que contiene el código fuente (`launcher.c`) y un `Makefile` para compilar binarios compilados que lanzan la consola o VS Code de forma directa y silenciosa, suprimiendo la ventana negra de PowerShell intermedia.
-*   [`linux/`](linux/): Variante nativa para Linux: activación de sesión (`source linux/activate.sh`), bootstrap de dependencias y scripts `bin/` portados (gestión de librerías, configuración de Git con GitHub CLI y personalización de la terminal).
-*   [plan.md](plan.md): Plan de trabajo y hoja de ruta.
-*   [AGENTS.md](AGENTS.md): Directrices normativas para agentes de desarrollo (commits semánticos, aislamiento del host, UCRT64). GEMINI.md se mantiene como stub de compatibilidad.
-*   [versions.json](versions.json): Manifiesto de versiones por cuatrimestre (URLs pineadas de MSYS2/VS Code/gh/WezTerm y versiones de extensiones). `null` = última disponible; el flag `-Latest` lo ignora.
-*   **Integridad de lo que se descarga de la cátedra:** `mother.pyz`, `ripley.pyz` y el binario de jonesy se comparan con el `SHA256SUMS` publicado en su mismo release antes de usarlos (`install.sh`, `unix/setup-personal.sh`, `setup.ps1` y `bin/update-env.sh`). Si la suma no coincide o no se puede comprobar, la instalación se cancela con la suma esperada y la descargada. Para un espejo propio, la suma esperada se puede dar con `P1_MOTHER_SHA256` / `P1_JONESY_SHA256` (Unix) o con `ripley_sha256` / `jonesy_sha256` en `versions.json` (Windows).
-*   [packages-base.txt](packages-base.txt) y [packages-compiladores.txt](packages-compiladores.txt): Fuentes únicas de paquetes pacman de la base y del módulo de compiladores, compartidas por los instaladores y `download-baseline.sh` / `update-packages.sh`.
-*   [requirements-base.txt](requirements-base.txt): Dependencias Python que `setup.ps1` instala con uv en el Python de la base (las que necesita `ripley.pyz`).
-*   VERSION: Versión actual del entorno, visible en `ayuda`, el diagnóstico y el log de instalación.
-*   [mejoras-y-problemas.md](mejoras-y-problemas.md): Análisis vivo de mejoras implementadas y pendientes.
-*   `home/`: Directorio local que actúa como `$HOME` del usuario. Evita contaminar la carpeta del sistema host. (Creado al inicializar).
-*   `msys64/`: Carpeta contenedora de MSYS2 y binarios (excluida en `.gitignore`).
-*   `python/`: Python de la base instalado con uv (excluida en `.gitignore`).
-*   `vscode/`: Carpeta contenedora del editor y configuraciones locales (excluida en `.gitignore`).
-*   `wezterm/`: Carpeta contenedora de la terminal WezTerm (excluida en `.gitignore`).
-
----
-
-## Requisitos de Sistema
-
-*   **Sistema Operativo:** Windows 10 (versión 1903 o superior) o Windows 11.
-*   **Arquitectura:** x64.
-*   **Permisos:** Permiso de ejecución de scripts de PowerShell (Execution Policy).
-
----
-
-## Instalación e Inicialización (Online)
-
-La instalación en Windows tiene dos fases, para que el entorno se pueda usar rápido y en contextos que no compilan C:
-
-| Fase | Qué instala | Cómo |
-|---|---|---|
-| **Base** | MSYS2 (bash, git), **uv**, **Python** con las dependencias de las herramientas de la cátedra, GitHub CLI, jonesy, WezTerm, Ripley | `setup.ps1` |
-| **Módulo `compiladores`** | gcc, gdb, make, cmake, ninja, cppcheck, clang-format/clang-tidy, doxygen (descarga grande, vía pacman) | al final de `setup.ps1`, o después con `instalar-compiladores.bat` / `instalar compiladores` |
-| **Módulo `vscode`** | VS Code portable con las extensiones de C/C++ y Python | al final de `setup.ps1`, o después con `instalar-vscode.bat` / `instalar vscode` |
-
-Al terminar la base, `setup.ps1` pregunta por cada módulo (Enter = sí). Para elegir sin preguntas: `.\setup.ps1 -Modulos ninguno` (solo la base), `-Modulos compiladores`, `-Modulos compiladores,vscode` o `-Modulos todos`. Con `-Yes` y sin `-Modulos` se instala todo, como en versiones anteriores. La consola avisa (`ayuda`) qué módulos faltan.
-
-Tenés dos opciones para realizar la instalación inicial:
-
-### Opción A: Ejecución Directa desde Internet (Recomendada)
-Podés iniciar la instalación descargando y ejecutando el script de inicio directamente desde internet. Abrí PowerShell en la carpeta donde quieras instalar el entorno y ejecutá:
 ```powershell
 Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/INGCOM-UNRN-P1/entorno/main/install.ps1 | iex
 ```
-Este script descargará el instalador principal (`setup.ps1`) con el formato correcto y te indicará cómo ejecutarlo para completar la configuración del entorno portable.
 
-> [!NOTE]
-> Una vez descargado `setup.ps1`, podrás ejecutarlo pasando los parámetros de personalización que desees directamente en tu consola local (por ejemplo: `.\setup.ps1 -HomeDirName developer -ImportHostConfig`). En ningún caso se modificarán o borrarán los archivos originales en el equipo host.
+Instala la **base** (consola WezTerm con bash, Git, Python con uv, GitHub CLI, jonesy y
+Ripley) y ofrece los **módulos opcionales**: `compiladores` (gcc, gdb, make, cmake y
+herramientas de análisis) y `vscode`. Los módulos se pueden agregar después con
+`instalar-compiladores.bat` / `instalar-vscode.bat`. Después, abrí la consola con `launch.bat`.
 
-### Opción B: Descarga Manual o Clonado
-1. Descargá o cloná este repositorio en el directorio donde desees conservar el entorno.
-2. Abrí una terminal de PowerShell en esta carpeta y ejecutá:
-   ```powershell
-   Set-ExecutionPolicy Bypass -Scope Process -Force; .\setup.ps1
-   ```
-   *Si deseás personalizar el nombre de la carpeta de configuraciones portátiles, podés pasar el parámetro `-HomeDirName`:*
-   ```powershell
-   Set-ExecutionPolicy Bypass -Scope Process -Force; .\setup.ps1 -HomeDirName "developer"
-   ```
-   *Si deseás conservar la configuración del entorno que usás como base en la máquina host (SSH, Git y settings.json de VS Code) en tu nuevo entorno portable, sumá el switch `-ImportHostConfig`:*
-   ```powershell
-   Set-ExecutionPolicy Bypass -Scope Process -Force; .\setup.ps1 -ImportHostConfig
-   ```
-   *(También podés combinar ambos parámetros: `.\setup.ps1 -HomeDirName "developer" -ImportHostConfig`)*
-   *Parámetros adicionales:* `-Yes` ejecuta todo sin preguntas interactivas (ideal para laboratorios); `-Latest` ignora los pines de `versions.json` e instala las últimas versiones disponibles; `-Modulos` elige los módulos opcionales (ver la tabla de arriba). Para congelar la versión de *scripts* durante el cuatrimestre, definí `CHANNEL=<tag-o-rama>` en tu `.env`.
+Guía completa: [Instalación en Windows](docs/instalacion/windows.md).
 
----
-
-## Uso Diario
-
-Para abrir la consola interactiva o el editor con el PATH y las herramientas configuradas:
-
-*   **Lanzar Terminal (WezTerm):** Ejecutá `launch.bat` (CMD) o `.\launch.ps1` (PowerShell).
-    *   *Si por alguna razón no se encuentra WezTerm localmente, los lanzadores caerán de vuelta de forma segura iniciando la terminal Bash integrada en la consola clásica.*
-*   **Lanzar VS Code:** Ejecutá `launch-vscode.bat` (CMD) o `.\launch-vscode.ps1` (PowerShell).
-
-### Comandos de cátedra
-
-Dentro del terminal portable también tenés utilidades pensadas para el flujo de trabajos prácticos:
-```bash
-nuevo-proyecto tp01     # crea tp01/ con main.c, Makefile y .gitignore
-nuevo-proyecto --tipo tp tp02   # despliega la plantilla modular (libs/ + ejercicios/ + ./tp.sh)
-cd tp01 && make         # compilá (o make debug / make asan)
-make ripley             # auditá el proyecto con el motor de análisis
-verificar               # corre las pruebas de cátedra (o ripley check . si hay manifiesto)
-doctor                  # verificá que todo esté sano
-entregar                # generá el ZIP de entrega validado
-```
-
-### Compilación de Lanzadores Ejecutables (`.exe`)
-Para evitar depender de archivos de comandos por lotes (`.bat`) y eliminar las molestas ventanas negras parpadeantes del prompt de comandos de Windows, el entorno permite generar lanzadores ejecutables nativos de Windows (`launch.exe` y `launch-vscode.exe`). Estos ejecutables abren la terminal y el editor de manera directa y totalmente invisible en segundo plano.
-
-Para compilar o regenerar los lanzadores nativos, iniciá tu terminal portable y ejecutá:
-```bash
-build-launcher.sh
-```
-El script compilará automáticamente los lanzadores en la raíz del entorno utilizando el compilador nativo GCC de UCRT64. A partir de ese momento, podés iniciar tus herramientas directamente usando los archivos `.exe`.
-
-Al iniciar VS Code o WezTerm a través de cualquiera de los cargadores, heredarán el compilador GCC, Make, CMake, Ninja y Python en su variable `PATH` de sesión, habilitando la compilación directa desde la terminal integrada sin configuración adicional.
-
-> [!TIP]
-> **Traducción de VS Code al Español:**
-> Por defecto, VS Code se instala en inglés. Si preferís tener la interfaz en español, podés instalar de forma muy sencilla la extensión oficial de idioma:
-> 1. Abrí VS Code portable usando `launch-vscode.bat`.
-> 2. Presioná `Ctrl + Shift + X` (o hacé clic en el ícono de extensiones en la barra de actividades de la izquierda).
-> 3. Buscá `Spanish Language Pack for VS Code` (desarrollada por Microsoft) o instalala directamente desde: [Spanish Language Pack for Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=MS-CEINTL.vscode-language-pack-es).
-> 4. Hacé clic en **Install** (Instalar).
-> 5. Al finalizar la instalación, se mostrará una notificación abajo a la derecha consultando si querés cambiar el idioma y reiniciar. Hacé clic en **Change Language and Restart**.
-
----
-
-## Uso en Linux y Estado Actual
-
-El repositorio incluye una variante nativa para GNU/Linux y WSL (Windows Subsystem for Linux) basada en activación de sesión en Bash.
-
-### Filosofía de Diseño: Aislamiento Estricto y Cero Sudo
-* **No invasivo**: No modifica ningún archivo fuera del directorio del repositorio.
-* **Sin privilegios elevados**: Nunca ejecuta gestores de paquetes con `sudo` ni requiere permisos de administrador.
-* **Aislamiento de usuario**: Redirige `$HOME` hacia `home/` (o el nombre definido en `.env`), resguardando tus configuraciones personales, historial de Bash, llaves SSH y credenciales de Git dentro del entorno portable.
-* **Limpieza absoluta**: La activación afecta únicamente la subshell o sesión actual de terminal; al invocar `deactivate` o cerrar la terminal, el sistema anfitrión queda en su estado original sin residuos.
-
-### Diagnóstico de Dependencias del Host (`linux/bootstrap.sh`)
-Dado que el entorno no instala paquetes a nivel de sistema operativo, incluye un asistente de diagnóstico que audita las herramientas requeridas:
+### macOS y Linux
 
 ```bash
-linux/bootstrap.sh
+curl -fsSL https://raw.githubusercontent.com/INGCOM-UNRN-P1/entorno/main/install.sh | bash
 ```
 
-El script detecta automáticamente el gestor de paquetes de tu distribución (`apt`, `dnf`, `pacman`, `zypper`, `apk`) y clasifica el estado de:
-* **Herramientas obligatorias (Core):** `git`, `gcc`, `g++`, `make`, `cmake`, `ninja`, `python3`, `pip`, `curl`.
-* **Herramientas recomendadas (Toolchain ampliado):** `gdb`, `cppcheck`, `doxygen`, `gh` (GitHub CLI), `uv`.
+Instala en `~/p1/entorno`, con espacio de trabajo `~/p1/dev`, sin `sudo`. El compilador y
+Python vienen del sistema (el instalador indica cómo instalarlos si faltan). Guía:
+[macOS y Linux](docs/instalacion/macos-linux.md). Para usarlo desde un clon sin instalar
+nada: [Linux y WSL portable](docs/instalacion/linux-portable.md).
 
-Si falta alguna herramienta, `bootstrap.sh` imprime el comando exacto para que el usuario la instale en su distribución según corresponda (por ejemplo: `sudo apt install build-essential cmake ninja-build python3-pip curl`).
-
-### Activación y Desactivación de Sesión
-
-Para ingresar al entorno portable desde tu terminal de Linux:
+## Uso
 
 ```bash
-source linux/activate.sh       # Activa toolchain, HOME local y scripts en PATH
-ayuda                          # Muestra la guía interactiva de comandos
-deactivate                     # Restaura la sesión original de Bash
+doctor                    # verificar que todo funcione
+configure-git.sh          # identidad de Git y sesión de GitHub
+nuevo-proyecto tp01       # crear un proyecto (o: clonar <url-del-tp>)
+make && verificar         # compilar y correr las pruebas de la cátedra
+entregar                  # validar y armar la entrega
+ayuda                     # todos los comandos
 ```
 
-Al activarse:
-1. Redirige `$HOME` al directorio portable (`$PORTABLE_ROOT/home`).
-2. Agrega `$PORTABLE_ROOT/linux/bin` y `$PORTABLE_ROOT/local/bin` al inicio del `$PATH`.
-3. Configura el toolchain de C para resolver bibliotecas locales sin tocar `/usr`:
-   - `CC=gcc`, `CXX=g++`
-   - `CPATH=$PORTABLE_ROOT/local/include`
-   - `LIBRARY_PATH=$PORTABLE_ROOT/local/lib`
-   - `LD_LIBRARY_PATH=$PORTABLE_ROOT/local/lib`
-   - `PKG_CONFIG_PATH=$PORTABLE_ROOT/local/lib/pkgconfig`
-   - `CMAKE_PREFIX_PATH=$PORTABLE_ROOT/local`
-4. Aplica el prompt decorado con el prefijo institucional y muestra el banner de bienvenida con el comando `ayuda`.
+Ver [Primeros pasos](docs/uso/primeros-pasos.md) y [Trabajos prácticos](docs/uso/trabajos-practicos.md).
 
-### Catálogo de Herramientas Portadas a Linux (`linux/bin/`)
+## Documentación
 
-Una vez activado el entorno, disponés en tu `$PATH` de las herramientas de desarrollo con paridad funcional total respecto a Windows:
+Todo está en [`docs/`](docs/README.md): instalación por plataforma, guías de uso
+(compilación, librerías de C, personalización, computadoras compartidas) y referencia
+técnica (arquitectura, configuración y scripts).
 
-| Comando | Descripción y Uso en Linux |
-| :--- | :--- |
-| `ayuda` | Despliega la guía de referencia rápida con el catálogo de comandos de cátedra. |
-| `doctor` | Diagnóstico automatizado de salud: verifica compilación y ejecución C, versión de Python, herramientas de build y configuración de Git. |
-| `nuevo-proyecto <nombre>` | Genera la estructura de un proyecto de cátedra con Makefile modular (`debug`, `asan`, `test`, `ripley`), `.clang-format`, `.editorconfig` y configuración de depuración para VS Code. Soporta flags `--tipo tp`, `--tipo lib` y `--tipo plano`. |
-| `verificar` | Validador de trabajos prácticos: corre suites de prueba `tests/caso_NN.in/.out` o delega en `ripley check .` si existe manifiesto. |
-| `entregar` | Compila, valida y genera el ZIP de entrega del trabajo práctico excluyendo binarios y artefactos de compilación. |
-| `ripley` | Linter pedagógico, ejecutor de AddressSanitizer y traductor de advertencias de GCC en lenguaje claro para estudiantes. |
-| `clonar <url>` | Clona repositorios de Git directamente dentro del directorio de proyectos del HOME portable. |
-| `install-lib.sh <repo> [ref]` | Descarga, compila e instala bibliotecas de C en `$PORTABLE_ROOT/local/` generando manifiestos de desinstalación. |
-| `uninstall-lib.sh <nombre>` | Desinstala bibliotecas locales a partir de su manifiesto sin dejar archivos huérfanos. |
-| `configure-git.sh` | Asistente interactivo para configurar nombre, correo y credenciales de GitHub (`gh auth login`) en el HOME portable. |
-| `customize-terminal.sh` | Personalizador del banner institucional de bienvenida y colores del prompt de Bash. |
-| `diagnose-env.sh` | Genera un informe detallado con versiones exactas de compiladores, librerías y variables de entorno activas. |
-| `backup` | Respalda el `$HOME` portable y manifiestos en un archivo `.zip` fechado. |
-| `restaurar <archivo.zip>` | Restaura un respaldo previo sobre el `$HOME` portable actual. |
-| `smoke.sh` | Ejecuta la batería de smoke test local del entorno (compilación, Cppcheck, Python, CMake y librerías). |
-| `soporte` | Empaqueta registros y diagnósticos del entorno para solicitar asistencia al equipo docente. |
-| `update-env.sh` | Actualiza los scripts del entorno desde el repositorio oficial de GitHub (`INGCOM-UNRN-P1/entorno`). |
+## Alcance
 
-### Estado Actual y Certificación de Calidad
+* **Cubre:** el aprovisionamiento y mantenimiento de un entorno de C y Python para Windows
+  (portable, sobre MSYS2 UCRT64), macOS, Linux y WSL; los comandos de cátedra para trabajos
+  prácticos; la instalación de las herramientas de la cátedra (`ripley` y el perfil
+  estudiante de `mother`) y el autodiagnóstico (`doctor`, `soporte`).
+* **No cubre:** la calificación ni la gestión de aulas (a cargo de `dredd` y `sulaco`), ni
+  las reglas de análisis de código: el entorno instala y ejecuta esas herramientas, no las
+  implementa.
 
-* **Paridad Funcional:** 100% de paridad con la versión Windows en flujo de proyectos, compilación, auditoría con Ripley, empaquetado de entregas y gestión de librerías.
-* **Suite de Pruebas Automatizadas:** Verificado mediante [`tests/test_linux_env.sh`](tests/test_linux_env.sh), que ejecuta **69 pruebas unitarias y de integración** en un sandbox aislado (`mktemp -d`), certificando:
-  - Activación, desactivación y restauración limpia de variables de entorno sin mutación del host.
-  - Creación de skel (`.bashrc`, `.bash_profile`) y deduplicación de `$PATH` ante subshells anidadas.
-  - Compilación e instalación de librerías locales con manifiestos (`install-lib.sh`, `uninstall-lib.sh`).
-  - Creación y compilación de proyectos con `nuevo-proyecto` (modos plano, tp y lib).
-  - Ciclo de validación y empaquetado de entregas con `verificar` y `entregar`.
-  - Respaldos y restauraciones con `backup` y `restaurar`.
-  - Diagnósticos de salud con `doctor` y `bootstrap.sh`.
-* **Compatibilidad de Distribuciones:** Probado y operativo en Fedora, Arch Linux, Ubuntu/Debian, openSUSE y entornos WSL2 (Windows Subsystem for Linux).
+## Desarrollo
 
----
+Las reglas del repositorio están en [AGENTS.md](AGENTS.md) y los cambios en
+[CHANGELOG.md](CHANGELOG.md). El CI corre linters, las pruebas de `tests/` y una
+instalación completa en Windows.
 
-## Personalización Estética de la Consola
+## Licencia y contacto
 
-Podés personalizar el mensaje de bienvenida de Bash y la apariencia visual de la terminal WezTerm (esquema de color, tamaño de fuente, opacidad del fondo y barra de pestañas) de la siguiente manera:
-
-### 1. Personalización de la Terminal (WezTerm)
-Ejecutá el asistente interactivo de WezTerm desde el sistema host:
-*   **Desde CMD:** Hacé doble clic en `customize-terminal.bat` o ejecutalo desde la consola.
-*   **Desde PowerShell:** Ejecutá `.\customize-terminal.ps1`.
-
-El asistente te guiará para:
-*   **Modificar la Apariencia:** Seleccionar esquemas de color premium (Tokyo Night, Dracula, Gruvbox, Nord, One Half Dark), ajustar el tamaño de la letra y configurar la opacidad del fondo (transparencia).
-*   **Barra de Pestañas (Tabs):** Elegir si deseás habilitar o deshabilitar la barra superior de pestañas para trabajar con múltiples terminales en una sola ventana.
-
-### 2. Personalización del Entorno de Bash (Mensaje de Bienvenida)
-Iniciá tu terminal portable y ejecutá el siguiente script de Bash:
-```bash
-customize-bash.sh
-```
-
-El script te guiará para:
-*   **Configurar el Banner de Bienvenida:** Elegir entre sugerencias/plantillas predefinidas (saludo minimalista con tu nombre de usuario, frases célebres de programación aleatorias, resumen de comandos útiles y rápidos) o escribir tu propia frase personalizada línea por línea (con la opción de desactivarlo por completo).
-*   **Elegir el Color:** Seleccionar el color del banner (Celeste, Verde, Amarillo, Violeta, Blanco).
-
-> [!TIP]
-> El asistente de WezTerm incluye un sistema de reintentos automáticos para evitar fallos si el archivo de configuración estuviera temporalmente bloqueado por estar en uso por la terminal.
-
----
-
-## Uso en Computadoras Compartidas (Limpieza de Seguridad)
-
-Si usás este entorno en un pendrive y programás en computadoras compartidas (laboratorios, computadoras de estudio o de terceros), debés asegurar tu privacidad antes de retirar el dispositivo:
-
-1. Cerrá VS Code y los terminales WezTerm activos.
-2. Abrí una ventana de PowerShell en la carpeta raíz y ejecutá el script de limpieza:
-   ```powershell
-   Set-ExecutionPolicy Bypass -Scope Process -Force; .\clean-shared-host.ps1
-   ```
-3. El script te detallará los archivos que serán eliminados. Confirmá con `s`.
-
-*Este comando borrará tu historial de comandos, llaves SSH privadas, datos de usuario, extensiones personalizadas instaladas en VS Code y los tokens y contraseñas guardados en `.git-credentials` sin requerir que borres los compiladores ni el editor de código, dejándolos listos para que los use otro usuario de forma segura.*
-
----
-
-## Distribución e Instalación Offline
-
-Para empaquetar el entorno completo ya inicializado y distribuirlo a computadoras sin acceso a internet:
-
-1. Inicializá el entorno de forma normal en una máquina con conexión ejecutando `setup.ps1`.
-2. Una vez completado, ejecutá el script de empaquetado en PowerShell:
-   ```powershell
-   Set-ExecutionPolicy Bypass -Scope Process -Force; .\package-env.ps1
-   ```
-   *Este script optimizará el espacio (vaciando la caché de pacman), copiará la estructura libre de metadatos de Git y creará el archivo comprimido `portable-env-offline.zip` en la raíz.*
-   *Parámetros opcionales: `-Compact` poda documentación/locales de MSYS2; `-ConExtensiones` incluye los `.vsix` instalados con un instalador offline para aulas sin internet; `-IncluirLibs` conserva las librerías de `local/` (por defecto no viajan).*
-3. Copiá el archivo `portable-env-offline.zip` a un pendrive o medio de almacenamiento.
-4. En la computadora de destino **sin internet**, simplemente extraé el archivo ZIP en cualquier ruta (sin espacios ni acentos) y ejecutá directamente los lanzadores (`launch.bat` o `launch-vscode.bat`). El entorno funcionará de forma inmediata 100% offline.
-
----
-
-## Configuración Inicial de Git y GitHub
-
-Dado que el entorno es portátil y no utiliza los directorios locales del host, debés configurar tu firma de Git para esta sesión portable:
-
-1. Ejecutá `launch.bat`.
-2. Dentro del terminal, corré el comando de configuración (agregado al PATH):
-   ```bash
-   configure-git.sh
-   ```
-3. Completá tu nombre y correo. Las credenciales de acceso a repositorios HTTPS se guardarán localmente dentro de `home/.git-credentials` mediante el helper `store`. No afectarán la configuración de la máquina host.
-
----
-
-## Gestión de Librerías de C desde GitHub
-
-El entorno incluye el script `install-lib.sh` (ubicado en `bin/` y disponible en el `PATH`) para instalar librerías directamente en el entorno portátil de compilación en el prefijo `/ucrt64` desde cualquier repositorio de GitHub.
-
-### Ejecución básica
-Iniciá el terminal (`launch.bat`) y ejecutá:
-```bash
-install-lib.sh <usuario/repositorio_github> [rama_o_tag]
-```
-
-### Ejemplos de uso:
-```bash
-# Instalar Nuklear (Librería GUI Header-only)
-install-lib.sh immediate-mode-ui/nuklear
-
-# Instalar inih (Librería parser de archivos INI usando CMake)
-install-lib.sh davidsiaw/inih r29
-
-# Instalar una librería estructurada (basada en plantilla-libreria que usa library.spec)
-install-lib.sh mi-usuario/mi-libreria-matematica
-```
-
----
-
-## Regeneración y Actualizaciones Rápidas
-
-*   **Para actualizar todo el entorno (base y módulos instalados):** Volvé a ejecutar `setup.ps1`. Actualiza la base y los módulos opcionales que ya tengas; los que no instalaste no se agregan (para eso: `instalar-<módulo>.bat`). El script respetará tu carpeta `vscode/data` (donde se guardan tus extensiones y configuraciones) actualizando únicamente la base del editor. Los pines de `versions.json` garantizan que todos obtengan las mismas versiones dentro del cuatrimestre; usá `-Latest` para saltearlos.
-*   **Para regenerar el entorno de cero:** Borrá las carpetas `msys64`, `python`, `vscode` y `wezterm` (o ejecutá `desinstalar.ps1`), resguardando `vscode/data` si querés conservar la configuración del editor, y volvé a ejecutar `setup.ps1`.
-
-## Contacto
-
-Martín René Vilugrón - mrvilugron@unrn.edu.ar - Ingeniería en Computación UNRN Andina
+[MIT](LICENSE). Martín René Vilugrón - mrvilugron@unrn.edu.ar - Ingeniería en Computación UNRN Andina

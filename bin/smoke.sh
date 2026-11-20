@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# smoke.sh - Automatiza las pruebas de aceptación del plan.md que no requieren
+# smoke.sh - Automatiza las pruebas de aceptación del plan (docs/desarrollo/plan.md) que no requieren
 # interfaz gráfica ni privilegios: compila y ejecuta C (Prueba A), valida
 # Python/pip/uv con instalación aislada en el HOME portable (Prueba B),
 # construye un proyecto CMake+Ninja (Prueba C), instala/desinstala una librería
 # local con manifiesto (subset de la Prueba E) y verifica identidad de Git (F).
 #
 # Las pruebas D (IntelliSense en VS Code), G (redespliegue offline completo) y
-# H (limpieza interactiva) siguen siendo manuales: ver plan.md.
+# H (limpieza interactiva) siguen siendo manuales: ver docs/desarrollo/plan.md.
 #
 # Uso: smoke.sh    (0 = todo OK)
 

@@ -1,6 +1,6 @@
 # Manual de Compilación con GCC (MinGW-w64)
 
-Este manual describe el funcionamiento del compilador GCC (GNU Compiler Collection) integrado en el subsistema portable UCRT64. El objetivo es comprender cómo se transforma tu código fuente en lenguaje C/C++ en un ejecutable binario nativo optimizado para Windows utilizando la biblioteca UCRT (Universal C Runtime).
+Este manual describe el funcionamiento del compilador GCC (GNU Compiler Collection) integrado en el subsistema portable UCRT64 (en Windows, lo instala el módulo `compiladores`). El objetivo es comprender cómo se transforma tu código fuente en lenguaje C/C++ en un ejecutable binario nativo optimizado para Windows utilizando la biblioteca UCRT (Universal C Runtime).
 
 ---
 
@@ -8,11 +8,7 @@ Este manual describe el funcionamiento del compilador GCC (GNU Compiler Collecti
 
 GCC procesa tu código fuente a través de múltiples fases (Preprocesamiento, Compilación, Ensamblado y Enlazado) para generar el ejecutable final. A continuación podés observar el flujo detallado:
 
-```{image} images/flujo_compilacion.svg
-:alt: Flujo de Compilación en GCC / UCRT64
-:align: center
-:width: 100%
-```
+![Flujo de Compilación en GCC / UCRT64](../images/flujo_compilacion.svg)
 
 ### Descripción de las Fases
 

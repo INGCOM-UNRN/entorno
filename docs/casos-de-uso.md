@@ -10,9 +10,10 @@ Este documento detalla los principales escenarios y problemáticas educativas y 
 Muchos estudiantes no cuentan con conexiones a Internet de banda ancha estables en sus hogares para descargar herramientas pesadas como Visual Studio Code, compiladores de C/C++, e intérpretes de Python, o necesitan instalar el entorno en múltiples equipos sin consumir datos repetidamente.
 
 ### Solución del Entorno
-* **Empaquetado Completo:** Mediante el script `package-env.ps1`, el docente o un estudiante con conectividad puede empaquetar el entorno completo inicializado en un único archivo ZIP.
+* **Instalación liviana:** La instalación base (consola, Git y Python) es una descarga chica; el compilador y VS Code son módulos opcionales que se agregan cuando hay buena conexión, o directamente se reciben en el paquete offline.
+* **Empaquetado Completo:** Mediante el script `herramientas/package-env.ps1`, el docente o un estudiante con conectividad puede empaquetar el entorno completo inicializado en un único archivo ZIP.
 * **Distribución Física:** El entorno comprimido puede distribuirse a través de unidades USB (pendrives). El estudiante receptor solo debe descomprimir el archivo y el entorno estará 100% operativo de inmediato, sin necesidad de descargar una sola línea de código o paquete de Internet.
-* **Caché Local de Paquetes:** El script `download-baseline.sh` precarga la caché local de MSYS2. Esto permite realizar instalaciones y reparaciones del subsistema Unix en computadoras completamente desconectadas a la red.
+* **Caché Local de Paquetes:** El script `download-baseline.sh` precarga la caché local de pacman con los paquetes del módulo de compiladores. Esto permite instalarlo o repararlo en computadoras completamente desconectadas de la red.
 
 ---
 
@@ -25,9 +26,9 @@ Al programar en computadoras de laboratorios de la universidad o de terceros, lo
 3. Desconfiguración del entorno al cambiar de máquina en cada clase.
 
 ### Solución del Entorno
-* **Ejecución sin Instalación:** El entorno funciona de forma autocontenida. WezTerm, VS Code y MSYS2 corren de forma portable sin requerir permisos de Administrador ni escribir en el registro o carpetas del sistema host (`C:\Program Files`, `~`, etc.).
+* **Ejecución sin Instalación:** El entorno funciona de forma autocontenida. WezTerm, VS Code, MSYS2, Git (MinGit) y Python corren de forma portable sin requerir permisos de Administrador ni escribir en el registro o carpetas del sistema host (`C:\Program Files`, `~`, etc.).
 * **Aislamiento en `home/`:** El historial de la terminal Bash, los archivos `.gitconfig`, las llaves SSH, los tokens y las configuraciones del editor se almacenan estrictamente dentro de la carpeta local `home/` en la unidad portable.
-* **Saneamiento Automático:** El script `clean-shared-host.ps1` permite al estudiante borrar de forma segura cualquier rastro temporal, historiales del host y credenciales en caché de la computadora compartida antes de retirar su pendrive.
+* **Saneamiento Automático:** El script `herramientas/clean-shared-host.ps1` permite al estudiante borrar de forma segura cualquier rastro temporal, historiales del host y credenciales en caché de la computadora compartida antes de retirar su pendrive.
 
 ---
 
@@ -37,7 +38,7 @@ Al programar en computadoras de laboratorios de la universidad o de terceros, lo
 El docente y los estudiantes se enfrentan a diario con errores de compilación causados por sutiles diferencias de versiones entre sistemas operativos, variables de entorno globales en conflicto o compiladores preinstalados obsoletos. Esto consume valioso tiempo de clase en depurar problemas de configuración del host.
 
 ### Solución del Entorno
-* **Toolchain Estandarizado:** Todos los estudiantes ejecutan la misma versión exacta del compilador GCC (MinGW-w64 UCRT64), Make, CMake, Ninja y Python.
+* **Toolchain Estandarizado:** Todos los estudiantes ejecutan la misma versión exacta del compilador GCC (MinGW-w64 UCRT64), Make, CMake, Ninja y Python, fijada por cuatrimestre en `config/versions.json`.
 * **Lanzadores con Inyección Dinámica:** Los cargadores (`launch.bat`, `launch-vscode.bat`) inyectan de forma dinámica en la variable `PATH` de sesión los compiladores locales y el directorio `bin/` portable. Al cerrarse la ventana, el host vuelve a su estado original sin contaminar variables de entorno globales.
 * **Soporte de Rutas con Espacios/No ASCII:** Los scripts realizan validaciones en el arranque alertando de manera clara si la ruta de instalación posee espacios o caracteres especiales (acentos) que puedan romper herramientas tradicionales de C como `make`.
 

@@ -1,4 +1,9 @@
-# Configuración en Computadoras Personales (macOS y Linux)
+# Instalación en macOS y Linux (computadora personal)
+
+Para tu propia computadora con macOS o Linux. El compilador y Python vienen del sistema;
+el instalador agrega los comandos de la cátedra, `uv`, `gh`, jonesy y las herramientas del
+perfil estudiante. Para usar el entorno desde una carpeta sin instalar nada, ver
+[Linux portable](linux-portable.md); para Windows, [Instalación en Windows](windows.md).
 
 ## Instalación en una línea (recomendada)
 
@@ -49,33 +54,29 @@ También puede ejecutarse remoto: `curl -fsSL .../desinstalar.sh | bash`.
 
 ---
 
-## Instalación alternativa desde un clon (`setup-personal.sh`)
+## Instalación alternativa desde un clon (`unix/setup-personal.sh`)
 
 Este procedimiento instala las herramientas y scripts de gestión de Programación 1 directamente en tu perfil de usuario (`$HOME/.local/bin`), sin requerir privilegios de administrador (`sudo`).
 
----
+### Requisitos previos
 
-## 1. Requisitos Previos por Sistema Operativo
-
-### macOS
+**macOS:**
 Tener instaladas las herramientas de línea de comandos de Apple:
 ```bash
 xcode-select --install
 ```
 
-### Linux (Debian, Ubuntu, Fedora, Arch)
+**Linux (Debian, Ubuntu, Fedora, Arch):**
 Disponer de compilador C, Make, Git y Python 3:
 * **Debian / Ubuntu:** `sudo apt install build-essential git python3 curl`
 * **Fedora:** `sudo dnf install gcc make git python3 curl`
 * **Arch Linux:** `sudo pacman -S base-devel git python curl`
 
----
-
-## 2. Instalación de Herramientas y Scripts de Gestión
+### Instalación
 
 Desde la raíz del repositorio `entorno`, ejecutá:
 ```bash
-./setup-personal.sh
+./unix/setup-personal.sh
 ```
 
 El script realiza de manera desatendida:
@@ -97,16 +98,14 @@ source ~/.bashrc   # en Bash
 source ~/.zshrc    # en Zsh (macOS)
 ```
 
----
-
-## 3. Desinstalación
+### Desinstalación
 
 Para remover los scripts de gestión y restaurar tus archivos de perfil (`.bashrc`, `.zshrc`):
 ```bash
-./desinstalar-personal.sh
+desinstalar-personal.sh        # queda instalado junto a los comandos (o ./unix/desinstalar-personal.sh)
 ```
 
 Si además querés remover `gh` y `uv` instalados en tu perfil:
 ```bash
-./desinstalar-personal.sh --all
+desinstalar-personal.sh --all
 ```
