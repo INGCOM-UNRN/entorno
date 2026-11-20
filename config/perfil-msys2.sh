@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # p1-entorno.sh - Perfil de MSYS2 del entorno portable (Windows).
 #
 # Lo copia lib/env.common.psm1 a msys64/etc/profile.d/ en cada inicio de sesión (lanzadores,
