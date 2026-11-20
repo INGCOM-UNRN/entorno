@@ -92,247 +92,10 @@ $homeDir = Join-Path $portableRoot $HomeDirName
 $vscodeDir = Join-Path $portableRoot "vscode"
 $isUpdateMode = Test-Path (Join-Path $portableRoot ".install_complete")
 
-# Manifiesto de versiones por cuatrimestre (versions.json): valores null = ultima disponible.
-# Por defecto se respetan los pines para reproducibilidad; -Latest los ignora.
-$pinnedVersions = $null
-$manifestFile = Join-Path $portableRoot "versions.json"
-if ((Test-Path $manifestFile) -and (-not $Latest)) {
-    try {
-        $pinnedVersions = Get-Content $manifestFile -Raw | ConvertFrom-Json
-        if ($pinnedVersions.canal) {
-            Write-Host "Canal de versiones configurado: $($pinnedVersions.canal)" -ForegroundColor DarkGray
-        }
-    } catch {
-        Write-Warning "versions.json invalido ($_). Se usaran las ultimas versiones disponibles."
-        $pinnedVersions = $null
-    }
-}
-function Get-Pinned([string]$Key) {
-    if ($null -eq $script:pinnedVersions) { return $null }
-    $prop = $script:pinnedVersions.PSObject.Properties[$Key]
-    if ($null -eq $prop) { return $null }
-    if ($prop.Value -is [string] -and $prop.Value.Trim()) { return $prop.Value.Trim() }
-    return $null
-}
-
-# Cache de respuestas de la API de GitHub: en aulas con NAT compartido el limite
-# de 60 consultas por hora por IP se agota rapido. Guarda cada respuesta en
-# descargas/api_cache con vencimiento (24 horas) y, si la API no responde o
-# rechaza por limite de peticiones, reutiliza la ultima copia aunque este vencida.
-function Get-GitHubApiCached {
-    param([string]$Url)
-    $cacheDir = Join-Path $descargasDir "api_cache"
-    $sha = [System.Security.Cryptography.SHA256]::Create()
-    try {
-        $hashBytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Url))
-    } finally {
-        $sha.Dispose()
-    }
-    $hash = [System.BitConverter]::ToString($hashBytes).Replace("-", "").Substring(0, 16).ToLower()
-    $cacheFile = Join-Path $cacheDir "$hash.json"
-    $stampFile = Join-Path $cacheDir "$hash.stamp"
-    $ttlHours = 24
-
-    $cachedJson = $null
-    $cacheFresh = $false
-    if (Test-Path $cacheFile) {
-        $cachedJson = Get-Content $cacheFile -Raw
-        if (Test-Path $stampFile) {
-            try {
-                $stampUtc = [datetimeoffset]::Parse((Get-Content $stampFile -Raw).Trim()).UtcDateTime
-                if (((Get-Date).ToUniversalTime() - $stampUtc).TotalHours -lt $ttlHours) { $cacheFresh = $true }
-            } catch { }
-        }
-        if ($cacheFresh) {
-            Write-Host "Respuesta de la API de GitHub servida desde la cache local." -ForegroundColor DarkGray
-            try { return ($cachedJson | ConvertFrom-Json) } catch { }
-        }
-    }
-
-    try {
-        $response = Invoke-RestMethod -Uri $Url -UseBasicParsing -TimeoutSec 10
-        New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
-        Set-Content -Path $cacheFile -Value ($response | ConvertTo-Json -Depth 20)
-        Set-Content -Path $stampFile -Value (Get-Date).ToUniversalTime().ToString("o")
-        return $response
-    } catch {
-        if (-not [string]::IsNullOrEmpty($cachedJson)) {
-            Write-Warning "Consulta a la API de GitHub fallida; se usa la cache local (aunque vencida)."
-            try { return ($cachedJson | ConvertFrom-Json) } catch { }
-        }
-        throw
-    }
-}
-
-# Descarga uniforme con reintentos para archivos grandes (MSYS2, VS Code, gh, WezTerm).
-# Un unico punto para ajustar cantidad de intentos y espera entre intentos.
-function Invoke-DownloadWithRetry {
-    param(
-        [string]$Url,
-        [string]$OutFile,
-        [int]$MaxAttempts = 3,
-        [int]$DelaySeconds = 2
-    )
-    $attempts = 0
-    while ($true) {
-        $attempts++
-        try {
-            Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -ErrorAction Stop
-            return
-        } catch {
-            if ($attempts -ge $MaxAttempts) { throw }
-            Start-Sleep -Seconds $DelaySeconds
-        }
-    }
-}
-
-# Integridad de los artefactos de la catedra (Ola 11): compara el archivo con la linea de su
-# nombre en el SHA256SUMS publicado junto a la URL (el mismo release), o con -Expected si se da
-# (versions.json: "<clave>_sha256"). Lanza una excepcion si no coincide o no se puede comprobar:
-# quien llama cancela la instalacion en vez de ejecutar algo descargado sin verificar.
-function Assert-ReleaseSha256 {
-    param(
-        [string]$Path,
-        [string]$Url,
-        [string]$Expected = ""
-    )
-    $name = $Url.Substring($Url.LastIndexOf('/') + 1)
-    if (-not $Expected) {
-        $sumsUrl = $Url.Substring(0, $Url.LastIndexOf('/')) + "/SHA256SUMS"
-        $sumsPath = "$Path.SHA256SUMS"
-        try {
-            Invoke-DownloadWithRetry -Url $sumsUrl -OutFile $sumsPath
-        } catch {
-            throw "No se pudo descargar $sumsUrl para verificar $name."
-        }
-        foreach ($line in (Get-Content -Path $sumsPath)) {
-            $parts = $line.Trim() -split '\s+', 2
-            if ($parts.Count -eq 2 -and ($parts[1] -eq $name -or $parts[1] -eq "*$name")) {
-                $Expected = $parts[0]
-                break
-            }
-        }
-        Remove-Item -Path $sumsPath -Force -ErrorAction SilentlyContinue
-        if (-not $Expected) { throw "El SHA256SUMS del release no trae la suma de $name." }
-    }
-    $actual = (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLower()
-    if ($actual -ne $Expected.Trim().ToLower()) {
-        throw "La suma SHA-256 de $name no coincide con la del release (esperada: $($Expected.Trim().ToLower()); descargada: $actual)."
-    }
-}
-
-# Espejo regional de pacman: mide latencia contra candidatos (prioridad sudamericana
-# para Red UNRN) y configura el mas rapido como primera opcion de cada mirrorlist.
-# Devuelve el espejo elegido o $null si ninguno respondio (no toca archivos en ese caso).
-function Select-PacmanMirrorByLatency {
-    param(
-        [string]$MsysDir,
-        [int]$TimeoutSec = 4
-    )
-    $mirrorCandidates = @(
-        "https://mirror.ufro.cl/msys2",
-        "https://repo.msys2.org",
-        "https://mirrors.utexas.edu/msys2",
-        "https://mirrors.ocf.berkeley.edu/msys2"
-    )
-    try {
-        Write-Host "Midiendo latencia de espejos de pacman..." -ForegroundColor Cyan
-        $bestMirror = $null
-        $bestMs = [double]::MaxValue
-        foreach ($candidate in $mirrorCandidates) {
-            try {
-                $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-                Invoke-WebRequest -Uri "$candidate/distrib/" -Method Head -UseBasicParsing -TimeoutSec $TimeoutSec | Out-Null
-                $stopwatch.Stop()
-                Write-Host ("  {0} -> {1} ms" -f $candidate, $stopwatch.ElapsedMilliseconds) -ForegroundColor DarkGray
-                if ($stopwatch.ElapsedMilliseconds -lt $bestMs) {
-                    $bestMs = $stopwatch.ElapsedMilliseconds
-                    $bestMirror = $candidate
-                }
-            } catch {
-                Write-Host "  $candidate -> sin respuesta" -ForegroundColor DarkGray
-            }
-        }
-        if (-not $bestMirror) {
-            Write-Warning "Ningun espejo de pacman respondio; se conservan los servidores por defecto."
-            return $null
-        }
-        Write-Host "Espejo pacman seleccionado: $bestMirror (${bestMs} ms)" -ForegroundColor Green
-        $markerLine = "# Espejo seleccionado automaticamente por setup.ps1 (latencia)"
-        $repoSubPaths = @{
-            "mirrorlist.msys"    = "/msys/x86_64/"
-            "mirrorlist.ucrt64"  = "/mingw/ucrt64/"
-            "mirrorlist.mingw64" = "/mingw/mingw64/"
-            "mirrorlist.clang64" = "/mingw/clang64/"
-        }
-        foreach ($mirrorListName in $repoSubPaths.Keys) {
-            $mirrorListFile = Join-Path (Join-Path $MsysDir "etc\pacman.d") $mirrorListName
-            if (-not (Test-Path $mirrorListFile)) { continue }
-            $existingLines = @(Get-Content $mirrorListFile)
-            $serverLine = "Server = $($bestMirror)$($repoSubPaths[$mirrorListName])"
-            $kept = @($existingLines | Where-Object { $_ -ne $serverLine -and $_ -notmatch 'Espejo seleccionado automaticamente' })
-            Set-Content -Path $mirrorListFile -Value (@($markerLine, $serverLine) + $kept)
-        }
-        return $bestMirror
-    } catch {
-        Write-Warning "Fallo la seleccion de espejo de pacman; se conservan los servidores por defecto."
-        return $null
-    }
-}
-
+# Funciones compartidas del instalador (descargas, pines de versions.json, pacman)
+$libPath = Join-Path $portableRoot "lib\instalador.ps1"
 # Codificacion UTF-8 sin BOM para los archivos que genera el instalador
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-
-# Funcion para extraer el nombre de archivo de una URL o usar un fallback
-function Get-FileNameFromUrl {
-    param(
-        [string]$Url,
-        [string]$DefaultName
-    )
-    if ([string]::IsNullOrEmpty($Url)) { return $DefaultName }
-    $leaf = $Url.Split('/')[-1]
-    if ($leaf -match "\?") {
-        $leaf = $leaf.Split('?')[0]
-    }
-    if ($leaf -match "\.(zip|exe|tar|gz|sfx)$") {
-        return $leaf
-    }
-    return $DefaultName
-}
-
-# Funcion para ejecutar comandos de pacman con reintentos
-function Invoke-PacmanWithRetry {
-    param(
-        [string]$BashPath,
-        [string]$Arguments,
-        [int]$MaxAttempts = 3,
-        [int]$DelaySeconds = 5
-    )
-    
-    $attempts = 0
-    $success = $false
-    
-    while (-not $success -and $attempts -lt $MaxAttempts) {
-        $attempts++
-        if ($attempts -gt 1) {
-            Write-Host "Reintentando comando pacman (Intento $attempts de $MaxAttempts) en $DelaySeconds segundos..." -ForegroundColor Yellow
-            Start-Sleep -Seconds $DelaySeconds
-        }
-        
-        # Ejecutar pacman con los argumentos correspondientes
-        & $BashPath --login -c "pacman $Arguments"
-        
-        if ($LASTEXITCODE -eq 0) {
-            $success = $true
-        } else {
-            Write-Warning "El comando 'pacman $Arguments' fallo con codigo de salida: $LASTEXITCODE"
-        }
-    }
-    
-    if (-not $success) {
-        throw "No se pudo completar la instalacion o actualizacion de paquetes con pacman tras $MaxAttempts intentos."
-    }
-}
 
 # Iniciar log de instalacion
 $logPath = Join-Path $portableRoot "install.log"
@@ -369,7 +132,15 @@ try {
     # ==========================================
     # 0. Actualizacion automatica de scripts
     # ==========================================
-    if ($SkipUpdate) {
+    # Una instalacion vieja se actualiza con la lista fija de archivos de su propio setup.ps1,
+    # que no trae lib\: si falta, se descarga aunque venga -SkipUpdate. Una sola vez por
+    # ejecucion (P1_SETUP_RELANZADO): si el canal configurado es anterior a lib\, el snapshot
+    # tampoco lo trae y relanzar de nuevo seria un bucle.
+    $faltanArchivosNuevos = ($env:P1_SETUP_RELANZADO -ne "1") -and -not (Test-Path $libPath)
+    if ($SkipUpdate -and $faltanArchivosNuevos) {
+        Write-Host "Falta lib\instalador.ps1: se descargan los scripts aunque se pidio -SkipUpdate." -ForegroundColor Yellow
+    }
+    if ($SkipUpdate -and -not $faltanArchivosNuevos) {
         Write-Host "=== Omitiendo actualizacion de scripts (-SkipUpdate) ===" -ForegroundColor DarkGray
     } else {
         Write-Host "=== Comprobando actualizaciones de los scripts del entorno ===" -ForegroundColor Cyan
@@ -515,10 +286,19 @@ try {
         if ($Latest) { $newArgs["Latest"] = $true }
         
         $localSetup = Join-Path $portableRoot "setup.ps1"
+        $env:P1_SETUP_RELANZADO = "1"
         & $localSetup @newArgs
         exit $LASTEXITCODE
     }
 }
+
+if (-not (Test-Path $libPath)) {
+    throw "Falta $libPath. Volve a descargar el entorno completo (o ejecuta setup.ps1 sin -SkipUpdate)."
+}
+. $libPath
+
+# Manifiesto de versiones por cuatrimestre (versions.json); -Latest lo ignora
+$pinnedVersions = Read-VersionManifest -Path (Join-Path $portableRoot "versions.json") -Latest:$Latest
 
 # Escribir archivo de configuracion .env local. Se reemplaza solo HOME_DIR_NAME: el resto de
 # las claves (por ejemplo CHANNEL, el canal de actualizacion) se conserva.
@@ -602,17 +382,7 @@ if (-not (Test-Path $homeDir)) {
 # 0.5 Preflight de recursos
 # ==========================================
 # Espacio en disco: la instalacion completa requiere ~4 GB libres.
-try {
-    $driveName = ($portableRoot.Substring(0, 2)).TrimEnd('\')
-    $drive = Get-PSDrive -Name $driveName[0] -ErrorAction Stop
-    if ($drive.Free -lt 4GB) {
-        $freeGb = [math]::Round($drive.Free / 1GB, 2)
-        throw "Espacio insuficiente en ${driveName}: hay ${freeGb} GB libres y se necesitan al menos 4 GB."
-    }
-    Write-Host "[OK] Espacio en disco suficiente ($([math]::Round($drive.Free / 1GB, 1)) GB libres)." -ForegroundColor DarkGray
-} catch [System.Management.Automation.PSInvalidOperationException] {
-    Write-Warning "No se pudo verificar el espacio en disco para '$portableRoot'. Continuando..."
-} 
+Assert-FreeSpace -Path $portableRoot -RequiredGB 4 -Context "la instalacion completa"
 # Rutas largas: msys64 agrega profundidad significativa; el limite clasico es 260 caracteres.
 if ($portableRoot.Length -gt 100) {
     Write-Warning ("La ruta de instalacion tiene {0} caracteres y puede exceder el limite clasico de 260 al extraer MSYS2." -f $portableRoot.Length)
@@ -818,11 +588,7 @@ if ($isUpdateMode -or -not $isMsysComplete) {
     # ==========================================
     # Lista unica de paquetes mantenida en packages-baseline.txt
     # (compartida con bin/download-baseline.sh; admite comentarios con #)
-    $pkgFile = Join-Path $portableRoot "packages-baseline.txt"
-    if (-not (Test-Path $pkgFile)) {
-        throw "No se encontro packages-baseline.txt en la raiz del entorno."
-    }
-    $packages = @(Get-Content -Path $pkgFile | ForEach-Object { ($_ -split '#')[0].Trim() } | Where-Object { $_ })
+    $packages = Get-PackageList -Path (Join-Path $portableRoot "packages-baseline.txt")
 
     $pkgString = $packages -join " "
     Write-Host "Instalando compiladores, herramientas de compilacion, Python y librerias comunes..." -ForegroundColor Cyan

@@ -8,6 +8,8 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $SetupPath = Join-Path $RepoRoot "setup.ps1"
+# Funciones compartidas del instalador
+$LibPath = Join-Path $RepoRoot "lib/instalador.ps1"
 $Fail = 0
 
 function Get-FunctionFromScript {
@@ -28,9 +30,19 @@ function Assert-True {
 }
 
 # ============================================================
+# 0. Los scripts del instalador parsean sin errores
+# ============================================================
+foreach ($rel in @("setup.ps1", "lib/instalador.ps1")) {
+    $parseErrs = $null
+    [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $RepoRoot $rel), [ref]$null, [ref]$parseErrs) | Out-Null
+    Assert-True "$rel parsea sin errores" (-not $parseErrs)
+    foreach ($e in @($parseErrs)) { if ($e) { Write-Host "   $($e.Extent.StartLineNumber): $($e.Message)" } }
+}
+
+# ============================================================
 # 1. Invoke-DownloadWithRetry: reintentos uniformes de descargas
 # ============================================================
-. ([scriptblock]::Create((Get-FunctionFromScript -Path $SetupPath -Name "Invoke-DownloadWithRetry")))
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Invoke-DownloadWithRetry")))
 
 $work = Join-Path ([System.IO.Path]::GetTempPath()) ("dlretry-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $work | Out-Null
@@ -75,7 +87,7 @@ try {
 $envRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("apicache-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $envRoot | Out-Null
 $descargasDir = Join-Path $envRoot "descargas"
-. ([scriptblock]::Create((Get-FunctionFromScript -Path $SetupPath -Name "Get-GitHubApiCached")))
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Get-GitHubApiCached")))
 
 try {
     $script:apiCalls = 0
@@ -115,7 +127,7 @@ try {
 # ============================================================
 # 3. Select-PacmanMirrorByLatency: espejo regional por latencia
 # ============================================================
-. ([scriptblock]::Create((Get-FunctionFromScript -Path $SetupPath -Name "Select-PacmanMirrorByLatency")))
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Select-PacmanMirrorByLatency")))
 
 $msysFake = Join-Path ([System.IO.Path]::GetTempPath()) ("mirror-" + [guid]::NewGuid().ToString("N"))
 $pacmand = Join-Path $msysFake "etc\pacman.d"
@@ -164,7 +176,7 @@ try {
 # ============================================================
 # 4. Get-Pinned: resolucion del manifiesto versions.json
 # ============================================================
-. ([scriptblock]::Create((Get-FunctionFromScript -Path $SetupPath -Name "Get-Pinned")))
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Get-Pinned")))
 
 $script:pinnedVersions = [pscustomobject]@{
     canal   = "2026-c1"
@@ -183,7 +195,7 @@ $script:pinnedVersions = $null
 # ============================================================
 # 5. Get-FileNameFromUrl: nombre de archivo desde URL
 # ============================================================
-. ([scriptblock]::Create((Get-FunctionFromScript -Path $SetupPath -Name "Get-FileNameFromUrl")))
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Get-FileNameFromUrl")))
 
 Assert-True "toma el ultimo segmento con extension valida" `
     ((Get-FileNameFromUrl -Url "https://ejemplo/descargas/msys2-base.sfx.exe" -DefaultName "x") -eq "msys2-base.sfx.exe")
@@ -211,7 +223,7 @@ Assert-True "ruta vacia devuelve false" (-not (Test-IsDirectHomePath -Path ""))
 # ============================================================
 # N. Assert-ReleaseSha256: integridad de jonesy y ripley.pyz (Ola 11)
 # ============================================================
-. ([scriptblock]::Create((Get-FunctionFromScript -Path $SetupPath -Name "Assert-ReleaseSha256")))
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Assert-ReleaseSha256")))
 
 $work = Join-Path ([System.IO.Path]::GetTempPath()) ("sha-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $work | Out-Null
