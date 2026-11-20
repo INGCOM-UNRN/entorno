@@ -12,6 +12,13 @@ wezterm.lua
 
 msys64/
 
+# Python de la base (uv) y binarios descargados por setup.ps1
+/python/
+/bin/uv.exe
+/bin/uvx.exe
+/bin/uvw.exe
+/bin/.uv_version
+
 # Local environment configuration
 .env
 

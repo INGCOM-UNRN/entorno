@@ -90,7 +90,7 @@ seccion() { printf '\n==========================================================
     for m in .install_complete .msys_complete .vscode_complete .gh_complete .wezterm_complete; do
         [ -f "$ROOT/$m" ] && echo "marcador $m : presente" || echo "marcador $m : ausente"
     done
-    for d in msys64 vscode wezterm local linux; do
+    for d in msys64 python vscode wezterm local linux; do
         [ -d "$ROOT/$d" ] && echo "carpeta  $d/ : presente" || echo "carpeta  $d/ : ausente"
     done
     echo "Espacio libre en la raíz: $(df -h "$ROOT" 2>/dev/null | tail -n1 | awk '{print $4}')"

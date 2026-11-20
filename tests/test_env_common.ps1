@@ -61,7 +61,9 @@ New-Item -ItemType Directory -Path $fixture | Out-Null
 
 # Guardar el entorno para restaurarlo al final
 $prev = @{}
-foreach ($k in @("PORTABLE_ROOT","HOME","MSYSTEM","CHERE_INVOKING","LANG","CC","CXX","AR","AS","LD","CPP","CFLAGS","LDFLAGS","PKG_CONFIG_PATH","CMAKE_PREFIX_PATH","VSCODE_ROOT","WEZTERM_ROOT")) {
+$sessionVars = @("PORTABLE_ROOT","HOME","MSYSTEM","CHERE_INVOKING","LANG","CC","CXX","AR","AS","LD","CPP","CFLAGS","LDFLAGS","PKG_CONFIG_PATH","CMAKE_PREFIX_PATH","VSCODE_ROOT","WEZTERM_ROOT","MSYS2_PATH_TYPE",
+    "UV_CACHE_DIR","UV_PYTHON_INSTALL_DIR","UV_PYTHON_BIN_DIR","UV_PYTHON_INSTALL_BIN","UV_PYTHON_INSTALL_REGISTRY","UV_PYTHON_PREFERENCE","UV_TOOL_DIR","UV_TOOL_BIN_DIR","UV_NO_MODIFY_PATH")
+foreach ($k in $sessionVars) {
     $prev[$k] = [System.Environment]::GetEnvironmentVariable($k)
 }
 $prevPath = $env:PATH
@@ -90,6 +92,20 @@ try {
     $cmakeEsperado = "$(Join-Path $fixture 'msys64\ucrt64');$(Join-Path $fixture 'msys64\usr');"
     Assert-True "CMAKE_PREFIX_PATH con ambos prefijos" ($env:CMAKE_PREFIX_PATH.StartsWith($cmakeEsperado))
 
+    Assert-True "bash hereda el PATH de la sesion (MSYS2_PATH_TYPE=inherit)" ($env:MSYS2_PATH_TYPE -eq "inherit")
+    Assert-True "uv confinado al entorno (cache, Python y herramientas bajo la raiz)" (
+        $env:UV_CACHE_DIR.StartsWith($fixture) -and $env:UV_PYTHON_INSTALL_DIR -eq (Join-Path $fixture "python") -and
+        $env:UV_TOOL_DIR.StartsWith($fixture) -and $env:UV_PYTHON_INSTALL_REGISTRY -eq "0")
+
+    # Con el Python de la base instalado, va despues de bin y antes del compilador
+    $pyDir = Join-Path $fixture "python/cpython-3.12.4-windows-x86_64-none"
+    New-Item -ItemType Directory -Path $pyDir -Force | Out-Null
+    Set-Content (Join-Path $pyDir "python.exe") -Value ""
+    $env:PATH = $prevPath
+    $null = Set-PortableSession -PortableRoot $fixture -HomeDirName "curso"
+    $expectedPyPrefix = "$(Join-Path $fixture 'bin');$pyDir;$(Join-Path $pyDir 'Scripts');$(Join-Path $fixture 'msys64\ucrt64\bin');"
+    Assert-True "PATH con el Python de la base entre bin y el compilador" ($env:PATH.StartsWith($expectedPyPrefix))
+
     Assert-True "integraciones VSCODE_ROOT/WEZTERM_ROOT" (
         $env:VSCODE_ROOT -eq (Join-Path $fixture "vscode") -and $env:WEZTERM_ROOT -eq (Join-Path $fixture "wezterm"))
 } finally {
@@ -98,6 +114,36 @@ try {
         [System.Environment]::SetEnvironmentVariable($k, $prev[$k])
     }
     $env:PATH = $prevPath
+    Remove-Item -Recurse -Force $fixture -ErrorAction SilentlyContinue
+}
+
+# ============================================================
+# 3.5 Get-PortablePythonDir (Python de la base instalado con uv)
+# ============================================================
+$fixture = Join-Path ([System.IO.Path]::GetTempPath()) ("envpython-" + [guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $fixture | Out-Null
+try {
+    Assert-True "sin carpeta python devuelve null" ($null -eq (Get-PortablePythonDir -PortableRoot $fixture))
+
+    $pyRoot = Join-Path $fixture "python"
+    foreach ($nombre in @("cpython-3.12.9-windows-x86_64-none", "cpython-3.12.10-windows-x86_64-none")) {
+        New-Item -ItemType Directory -Path (Join-Path $pyRoot $nombre) -Force | Out-Null
+        Set-Content (Join-Path (Join-Path $pyRoot $nombre) "python.exe") -Value ""
+    }
+    # Carpeta sin python.exe (instalacion a medias): se ignora aunque sea la version mas alta
+    New-Item -ItemType Directory -Path (Join-Path $pyRoot "cpython-3.13.0-windows-x86_64-none") -Force | Out-Null
+
+    $elegido = Split-Path (Get-PortablePythonDir -PortableRoot $fixture) -Leaf
+    Assert-True "sin ACTUAL elige la version mas nueva por numero (3.12.10 > 3.12.9)" ($elegido -eq "cpython-3.12.10-windows-x86_64-none")
+
+    Set-Content (Join-Path $pyRoot "ACTUAL") -Value "cpython-3.12.9-windows-x86_64-none"
+    $elegido = Split-Path (Get-PortablePythonDir -PortableRoot $fixture) -Leaf
+    Assert-True "python\ACTUAL manda sobre la version mas nueva" ($elegido -eq "cpython-3.12.9-windows-x86_64-none")
+
+    Set-Content (Join-Path $pyRoot "ACTUAL") -Value "..\..\otra-cosa"
+    $elegido = Split-Path (Get-PortablePythonDir -PortableRoot $fixture) -Leaf
+    Assert-True "ACTUAL invalido (fuera de python\) cae a la busqueda" ($elegido -eq "cpython-3.12.10-windows-x86_64-none")
+} finally {
     Remove-Item -Recurse -Force $fixture -ErrorAction SilentlyContinue
 }
 

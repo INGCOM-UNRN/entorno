@@ -74,6 +74,64 @@ function Get-PortableHomeName {
     return $homeDirName
 }
 
+function Set-PortableUvEnvironment {
+    <#
+    .SYNOPSIS
+    Confina uv dentro del entorno portable: cache, interpretes de Python y herramientas
+    (uv tool install) quedan bajo la raiz, sin escribir en %LOCALAPPDATA%, en el perfil
+    del usuario ni en el registro de Windows. Lo usan setup.ps1 y las sesiones.
+    #>
+    param([string]$PortableRoot)
+
+    $env:UV_CACHE_DIR               = Join-Path $PortableRoot "descargas\uv_cache"
+    $env:UV_PYTHON_INSTALL_DIR      = Join-Path $PortableRoot "python"
+    $env:UV_PYTHON_BIN_DIR          = Join-Path $PortableRoot "python\bin"
+    $env:UV_PYTHON_INSTALL_BIN      = "0"
+    $env:UV_PYTHON_INSTALL_REGISTRY = "0"
+    $env:UV_PYTHON_PREFERENCE       = "only-managed"
+    $env:UV_TOOL_DIR                = Join-Path $PortableRoot "local\uv-tools"
+    $env:UV_TOOL_BIN_DIR            = Join-Path $PortableRoot "local\bin"
+    $env:UV_NO_MODIFY_PATH          = "1"
+}
+
+function Get-PortablePythonDir {
+    <#
+    .SYNOPSIS
+    Devuelve la carpeta del Python de la base (la que contiene python.exe) o $null si
+    no esta instalado. setup.ps1 registra el nombre en python\ACTUAL; si falta, se
+    elige la instalacion mas nueva de python\cpython-*. Las carpetas enlace (junctions
+    que uv crea por version menor) se ignoran: guardan rutas absolutas y dejan de
+    funcionar si el entorno se mueve de carpeta o de unidad.
+    #>
+    param([string]$PortableRoot)
+
+    $pythonRoot = Join-Path $PortableRoot "python"
+    if (-not (Test-Path $pythonRoot)) { return $null }
+
+    $pointer = Join-Path $pythonRoot "ACTUAL"
+    if (Test-Path $pointer) {
+        $name = (Get-Content $pointer -Raw).Trim()
+        if ($name -match '^[A-Za-z0-9._+-]+$') {
+            $candidate = Join-Path $pythonRoot $name
+            if (Test-Path (Join-Path $candidate "python.exe")) { return $candidate }
+        }
+    }
+
+    $best = $null
+    $bestVersion = $null
+    foreach ($dir in @(Get-ChildItem -Path $pythonRoot -Directory -Filter "cpython-*" -ErrorAction SilentlyContinue)) {
+        if ($dir.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { continue }
+        if (-not (Test-Path (Join-Path $dir.FullName "python.exe"))) { continue }
+        if ($dir.Name -notmatch '^cpython-(\d+\.\d+\.\d+)') { continue }
+        $version = [version]$Matches[1]
+        if ($null -eq $bestVersion -or $version -gt $bestVersion) {
+            $bestVersion = $version
+            $best = $dir.FullName
+        }
+    }
+    return $best
+}
+
 function Set-PortableSession {
     <#
     .SYNOPSIS
@@ -98,11 +156,21 @@ function Set-PortableSession {
     $env:CHERE_INVOKING = "1"
     $env:LANG = "es_AR.UTF-8"
 
-    # Scripts internos, compilador y userland de MSYS2 al frente del PATH
+    # Scripts internos, Python de la base, compilador y userland de MSYS2 al frente del PATH.
+    # El Python de la base (uv) va antes que ucrt64\bin: en instalaciones viejas el modulo de
+    # compiladores traia otro python3 y la base debe ganar. Las consolas bash heredan este
+    # PATH (MSYS2_PATH_TYPE=inherit) para que vean el mismo Python que VS Code.
     $binPath = Join-Path $PortableRoot "bin"
     $gccPath = Join-Path $PortableRoot "msys64\ucrt64\bin"
     $usrPath = Join-Path $PortableRoot "msys64\usr\bin"
-    $env:PATH = "$binPath;$gccPath;$usrPath;$env:PATH"
+    $pythonPaths = ""
+    $pythonDir = Get-PortablePythonDir -PortableRoot $PortableRoot
+    if ($pythonDir) {
+        $pythonPaths = "$pythonDir;$(Join-Path $pythonDir 'Scripts');"
+    }
+    $env:PATH = "$binPath;$pythonPaths$gccPath;$usrPath;$env:PATH"
+    $env:MSYS2_PATH_TYPE = "inherit"
+    Set-PortableUvEnvironment -PortableRoot $PortableRoot
 
     # Variables especificas del Toolchain de C/C++
     # (GCC en MSYS2 resuelve sus directorios internos relativos a su ubicacion;
@@ -186,4 +254,4 @@ function Set-VsCodeCompilerSettings {
     return $false
 }
 
-Export-ModuleMember -Function Test-ConflictivePath, Show-PathWarning, Get-PortableHomeName, Set-PortableSession, Set-VsCodeCompilerSettings
+Export-ModuleMember -Function Test-ConflictivePath, Show-PathWarning, Get-PortableHomeName, Set-PortableUvEnvironment, Get-PortablePythonDir, Set-PortableSession, Set-VsCodeCompilerSettings

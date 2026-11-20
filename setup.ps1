@@ -296,6 +296,7 @@ if (-not (Test-Path $libPath)) {
     throw "Falta $libPath. Volve a descargar el entorno completo (o ejecuta setup.ps1 sin -SkipUpdate)."
 }
 . $libPath
+Import-Module (Join-Path $portableRoot "env.common.psm1") -Force
 
 # Manifiesto de versiones por cuatrimestre (versions.json); -Latest lo ignora
 $pinnedVersions = Read-VersionManifest -Path (Join-Path $portableRoot "versions.json") -Latest:$Latest
@@ -591,7 +592,7 @@ if ($isUpdateMode -or -not $isMsysComplete) {
     $packages = Get-PackageList -Path (Join-Path $portableRoot "packages-baseline.txt")
 
     $pkgString = $packages -join " "
-    Write-Host "Instalando compiladores, herramientas de compilacion, Python y librerias comunes..." -ForegroundColor Cyan
+    Write-Host "Instalando compiladores, herramientas de compilacion y librerias comunes..." -ForegroundColor Cyan
     Invoke-PacmanWithRetry -BashPath $bashPath -Arguments "-S --needed --noconfirm --cachedir '$unixCacheDir' $pkgString"
 
     # Configurar alias en el HOME portable
@@ -922,6 +923,133 @@ if (Test-Path $codeCmd) {
                 Write-Warning "No se pudo instalar/verificar la extension $ext."
             }
         }
+    }
+}
+
+# ==========================================
+# 5.4 uv y Python (base: las herramientas de la catedra son Python)
+# ==========================================
+# uv se instala como binario standalone (no depende de pacman ni del modulo de
+# MSYS2) y administra el Python del entorno. Todo queda dentro del entorno:
+# uv.exe en bin\, el interprete en python\ y la cache en descargas\uv_cache, sin
+# registrar nada en el sistema (Set-PortableUvEnvironment en env.common.psm1).
+Set-PortableUvEnvironment -PortableRoot $portableRoot
+$uvExe = Join-Path $portableRoot "bin\uv.exe"
+$uvVersionFile = Join-Path $portableRoot "bin\.uv_version"
+$uvAssetName = "uv-x86_64-pc-windows-msvc.zip"
+
+$uvDownloadUrl = $null
+if ($isUpdateMode -or $Latest -or -not (Test-Path $uvExe)) {
+    $uvDownloadUrl = Get-Pinned 'uv'
+    if ($uvDownloadUrl) {
+        Write-Host "uv fijado por el manifiesto de versiones." -ForegroundColor DarkGray
+    } else {
+        try {
+            $uvRelease = Get-GitHubApiCached -Url "https://api.github.com/repos/astral-sh/uv/releases/latest"
+            $uvAsset = $uvRelease.assets | Where-Object { $_.name -eq $uvAssetName } | Select-Object -First 1
+            if ($uvAsset) {
+                $uvDownloadUrl = $uvAsset.browser_download_url
+                Write-Host "Ultima version detectada de uv: $($uvRelease.tag_name)" -ForegroundColor Green
+            }
+        } catch {
+            Write-Warning "Fallo al consultar la API de GitHub para uv. Usando fallback fijo."
+        }
+        if (-not $uvDownloadUrl) {
+            $uvDownloadUrl = Get-Pinned 'uv_fallback'
+        }
+    }
+}
+
+$installedUvUrl = ""
+if (Test-Path $uvVersionFile) { $installedUvUrl = (Get-Content $uvVersionFile -Raw).Trim() }
+
+if ((Test-Path $uvExe) -and (-not $uvDownloadUrl -or $uvDownloadUrl -eq $installedUvUrl)) {
+    Write-Host "uv ya esta instalado en bin\uv.exe." -ForegroundColor Green
+} elseif (-not $uvDownloadUrl) {
+    throw "No se pudo resolver la URL de descarga de uv (sin API de GitHub ni 'uv_fallback' en versions.json)."
+} else {
+    Write-Host "Descargando uv desde $uvDownloadUrl..." -ForegroundColor Cyan
+    $uvZipPath = Join-Path $descargasDir $uvAssetName
+    $uvExtractDir = Join-Path $descargasDir "uv_extract"
+    try {
+        Invoke-DownloadWithRetry -Url $uvDownloadUrl -OutFile $uvZipPath
+        # Astral publica la suma de cada artefacto junto al archivo (<archivo>.sha256)
+        $uvShaPath = "$uvZipPath.sha256"
+        Invoke-DownloadWithRetry -Url "$uvDownloadUrl.sha256" -OutFile $uvShaPath
+        $uvExpected = ((Get-Content $uvShaPath -Raw).Trim() -split '\s+')[0].ToLower()
+        $uvActual = (Get-FileHash -Path $uvZipPath -Algorithm SHA256).Hash.ToLower()
+        Remove-Item -Path $uvShaPath -Force -ErrorAction SilentlyContinue
+        if ($uvExpected -notmatch '^[0-9a-f]{64}$' -or $uvActual -ne $uvExpected) {
+            throw "La suma SHA-256 de $uvAssetName no coincide con la publicada (esperada: $uvExpected; descargada: $uvActual)."
+        }
+        if (Test-Path $uvExtractDir) { Remove-Item -Path $uvExtractDir -Recurse -Force }
+        Expand-Archive -Path $uvZipPath -DestinationPath $uvExtractDir -Force
+        $uvBinDir = Join-Path $portableRoot "bin"
+        foreach ($uvBin in @("uv.exe", "uvx.exe", "uvw.exe")) {
+            $uvSrc = Get-ChildItem -Path $uvExtractDir -Recurse -Filter $uvBin | Select-Object -First 1
+            if ($uvSrc) { Copy-Item -Path $uvSrc.FullName -Destination (Join-Path $uvBinDir $uvBin) -Force }
+        }
+        if (-not (Test-Path $uvExe)) { throw "El ZIP de uv no contiene uv.exe." }
+        Set-Content -Path $uvVersionFile -Value $uvDownloadUrl
+        Write-Host "uv instalado en bin\uv.exe ($((& $uvExe --version) -join ' '))." -ForegroundColor Green
+    } finally {
+        if (Test-Path $uvExtractDir) { Remove-Item -Path $uvExtractDir -Recurse -Force -ErrorAction SilentlyContinue }
+        if (Test-Path $uvZipPath) { Remove-Item -Path $uvZipPath -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+# Python de la base: version menor fijada en versions.json ("python"), 3.12 por defecto.
+$pythonVersion = Get-Pinned 'python'
+if (-not $pythonVersion) { $pythonVersion = "3.12" }
+$pythonRoot = Join-Path $portableRoot "python"
+$pythonDir = Get-PortablePythonDir -PortableRoot $portableRoot
+if ($isUpdateMode -or -not $pythonDir) {
+    Write-Host "Instalando/verificando Python $pythonVersion con uv..." -ForegroundColor Cyan
+    & $uvExe python install $pythonVersion
+    if ($LASTEXITCODE -ne 0) {
+        throw "uv no pudo instalar Python $pythonVersion (codigo $LASTEXITCODE)."
+    }
+    # Registrar la carpeta real del interprete (no la junction por version menor, que guarda
+    # una ruta absoluta): el entorno sigue funcionando si se mueve de carpeta o de unidad.
+    $pythonDir = $null
+    $versionPattern = '^cpython-' + [regex]::Escape($pythonVersion) + '\.(\d+)'
+    $bestPatch = -1
+    foreach ($dir in @(Get-ChildItem -Path $pythonRoot -Directory -Filter "cpython-*" -ErrorAction SilentlyContinue)) {
+        if ($dir.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { continue }
+        if (-not (Test-Path (Join-Path $dir.FullName "python.exe"))) { continue }
+        if ($dir.Name -match $versionPattern -and [int]$Matches[1] -gt $bestPatch) {
+            $bestPatch = [int]$Matches[1]
+            $pythonDir = $dir.FullName
+        }
+    }
+    if (-not $pythonDir) {
+        throw "uv termino sin errores pero no se encontro python.exe en $pythonRoot."
+    }
+    Set-Content -Path (Join-Path $pythonRoot "ACTUAL") -Value (Split-Path $pythonDir -Leaf)
+}
+Write-Host "Python de la base: $pythonDir" -ForegroundColor Green
+$pythonExe = Join-Path $pythonDir "python.exe"
+
+# 'python3' es el nombre que usan los scripts de bin\ (ripley, verificar, etc.)
+$python3Exe = Join-Path $pythonDir "python3.exe"
+if (-not (Test-Path $python3Exe)) { Copy-Item -Path $pythonExe -Destination $python3Exe -Force }
+
+# Es el Python propio del entorno: pip debe poder instalar paquetes del alumno en el.
+$externallyManaged = Join-Path $pythonDir "Lib\EXTERNALLY-MANAGED"
+if (Test-Path $externallyManaged) { Remove-Item -Path $externallyManaged -Force }
+if ((Invoke-NativeQuiet -FilePath $pythonExe -ArgumentList @("-m", "pip", "--version")) -ne 0) {
+    Write-Host "Habilitando pip en el Python de la base..." -ForegroundColor Cyan
+    & $pythonExe -m ensurepip --upgrade
+    if ($LASTEXITCODE -ne 0) { Write-Warning "No se pudo habilitar pip (ensurepip). 'uv pip' sigue disponible." }
+}
+
+# Dependencias de las herramientas de la catedra (Ripley necesita typer y rich)
+$requirementsBase = Join-Path $portableRoot "requirements-base.txt"
+if (Test-Path $requirementsBase) {
+    Write-Host "Instalando dependencias Python de la base (requirements-base.txt)..." -ForegroundColor Cyan
+    & $uvExe pip install --python $pythonExe --break-system-packages -r $requirementsBase
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "No se pudieron instalar las dependencias Python de la base (codigo $LASTEXITCODE). Ripley no va a funcionar hasta reintentar setup.ps1."
     }
 }
 
@@ -1542,7 +1670,9 @@ if ($ImportHostConfig) {
     # Resumen de componentes para el usuario
     Write-Host "`n--- ESTADO DE COMPONENTES ---" -ForegroundColor Cyan
     $summaryComponents = @(
-        @{ Name = "MSYS2 (GCC, make, cmake, python)"; Ok = (Test-Path (Join-Path $msysDir "usr\bin\bash.exe")) },
+        @{ Name = "MSYS2 (GCC, make, cmake)";         Ok = (Test-Path (Join-Path $msysDir "usr\bin\bash.exe")) },
+        @{ Name = "uv";                               Ok = (Test-Path (Join-Path $portableRoot "bin\uv.exe")) },
+        @{ Name = "Python";                           Ok = [bool](Get-PortablePythonDir -PortableRoot $portableRoot) },
         @{ Name = "VS Code Portable";                 Ok = (Test-Path (Join-Path $vscodeDir "Code.exe")) },
         @{ Name = "WezTerm";                          Ok = (Test-Path (Join-Path $portableRoot "wezterm\wezterm.exe")) },
         @{ Name = "GitHub CLI";                       Ok = (Test-Path (Join-Path $portableRoot "bin\gh.exe")) },
