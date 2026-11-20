@@ -689,6 +689,8 @@ if ($isUpdateMode -or -not $isMsysComplete) {
     # ==========================================
     Write-Host "Inicializando entorno de consola..." -ForegroundColor Cyan
     $bashPath = Join-Path $msysDir "usr\bin\bash.exe"
+    # /tmp y /home pueden faltar (las imagenes precompiladas no los traen)
+    Initialize-PortableMsys -PortableRoot $portableRoot
     & $bashPath --login -c "exit"
 
     # Descargas paralelas en pacman: la base no usa pacman, pero el modulo de compiladores si

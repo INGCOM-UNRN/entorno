@@ -132,6 +132,23 @@ function Get-PortablePythonDir {
     return $best
 }
 
+function Initialize-PortableMsys {
+    <#
+    .SYNOPSIS
+    Crea las carpetas de MSYS2 que bash necesita y que pueden faltar: msys64\tmp (sin ella
+    bash avisa "could not find /tmp" y todo lo que escribe en /tmp falla) y msys64\home.
+    Las imagenes precompiladas no las traen, ni con contenido ni vacias.
+    #>
+    param([string]$PortableRoot)
+
+    $msysDir = Join-Path $PortableRoot "msys64"
+    if (-not (Test-Path (Join-Path (Join-Path $msysDir "usr") "bin"))) { return }
+    foreach ($carpeta in @("tmp", "home")) {
+        $ruta = Join-Path $msysDir $carpeta
+        if (-not (Test-Path $ruta)) { New-Item -ItemType Directory -Force -Path $ruta | Out-Null }
+    }
+}
+
 function Install-PerfilMsys {
     <#
     .SYNOPSIS
@@ -202,6 +219,7 @@ function Set-PortableSession {
     $env:PATH = "$binPath;$pythonPaths$gitPaths$gccPath;$usrPath;$env:PATH"
     $env:MSYS2_PATH_TYPE = "inherit"
     Set-PortableUvEnvironment -PortableRoot $PortableRoot
+    Initialize-PortableMsys -PortableRoot $PortableRoot
     Install-PerfilMsys -PortableRoot $PortableRoot
 
     # Variables especificas del Toolchain de C/C++
@@ -286,4 +304,4 @@ function Set-VsCodeCompilerSettings {
     return $false
 }
 
-Export-ModuleMember -Function Test-ConflictivePath, Show-PathWarning, Get-PortableHomeName, Set-PortableUvEnvironment, Get-PortablePythonDir, Install-PerfilMsys, Set-PortableSession, Set-VsCodeCompilerSettings
+Export-ModuleMember -Function Test-ConflictivePath, Show-PathWarning, Get-PortableHomeName, Set-PortableUvEnvironment, Get-PortablePythonDir, Initialize-PortableMsys, Install-PerfilMsys, Set-PortableSession, Set-VsCodeCompilerSettings

@@ -75,12 +75,10 @@ function New-Zip([string]$ZipPath, [string[]]$Rutas) {
     $listaPath = "$ZipPath.lista"
     [System.IO.File]::WriteAllLines($listaPath, $Rutas, (New-Object System.Text.UTF8Encoding($false)))
     if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
-    # tmp y home viajan vacios (bash necesita que /tmp exista); el resto no viaja
+    # tmp y home no viajan (tar.exe excluye la carpeta aunque se excluya solo su contenido):
+    # Initialize-PortableMsys (lib\env.common.psm1) las crea en cada sesion y en setup.ps1
     $exclusiones = @()
-    foreach ($e in $excluidos) {
-        $patron = if ($e -eq "msys64/tmp" -or $e -eq "msys64/home") { "$e/*" } else { $e }
-        $exclusiones += @("--exclude", $patron)
-    }
+    foreach ($e in $excluidos) { $exclusiones += @("--exclude", $e) }
     $exclusiones += @("--exclude", "python/*/Scripts/*.exe")
     & $tarExe -a -c -f $ZipPath -C $portableRoot @exclusiones -T $listaPath
     if ($LASTEXITCODE -ne 0) { throw "tar.exe no pudo crear $ZipPath (codigo $LASTEXITCODE)." }

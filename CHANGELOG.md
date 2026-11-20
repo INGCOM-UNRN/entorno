@@ -5,6 +5,9 @@ versionado SemVer. La versión del entorno vive en el archivo `VERSION`.
 
 ## [Sin publicar]
 
+### Corregido
+* Las imágenes precompiladas no traían `msys64/tmp`: `tar.exe` excluía la carpeta aunque se excluyera solo su contenido, y bash fallaba al escribir en `/tmp` (lo detectó la prueba de humo del workflow, antes de publicar). Ahora la sesión (`Initialize-PortableMsys`) y `setup.ps1` crean `msys64/tmp` y `msys64/home` si faltan.
+
 ## [1.2.0] - 2026-11-20
 
 ### Cambiado

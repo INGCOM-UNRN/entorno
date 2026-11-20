@@ -114,11 +114,18 @@ try {
     Set-Content (Join-Path $fixture "config/perfil-msys2.sh") -Value "# perfil v1" -NoNewline
     $env:PATH = $prevPath
     $null = Set-PortableSession -PortableRoot $fixture -HomeDirName "curso"
+    Assert-True "sin msys64\usr\bin no se crean carpetas de MSYS2" (-not (Test-Path (Join-Path $fixture "msys64/tmp")))
     Assert-True "perfil de MSYS2 instalado en profile.d" ((Get-Content -Raw (Join-Path $profileD "p1-entorno.sh")) -eq "# perfil v1")
     Set-Content (Join-Path $fixture "config/perfil-msys2.sh") -Value "# perfil v2" -NoNewline
     $env:PATH = $prevPath
     $null = Set-PortableSession -PortableRoot $fixture -HomeDirName "curso"
     Assert-True "perfil de MSYS2 actualizado si cambio" ((Get-Content -Raw (Join-Path $profileD "p1-entorno.sh")) -eq "# perfil v2")
+
+    # MSYS2 sin /tmp ni /home (imagen precompilada): la sesion las crea
+    New-Item -ItemType Directory -Force -Path (Join-Path $fixture "msys64/usr/bin") | Out-Null
+    $env:PATH = $prevPath
+    $null = Set-PortableSession -PortableRoot $fixture -HomeDirName "curso"
+    Assert-True "la sesion crea msys64/tmp y msys64/home si faltan" ((Test-Path (Join-Path $fixture "msys64/tmp")) -and (Test-Path (Join-Path $fixture "msys64/home")))
 
     # Con MinGit instalado, su cmd\ va despues de Python y antes del compilador
     $gitCmd = Join-Path $fixture "mingit\cmd"
