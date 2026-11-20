@@ -46,6 +46,28 @@ Assert-True "setup.ps1 no descarga VS Code" (-not ($setupText -match 'win32-x64-
 Assert-True "setup.ps1 no usa pacman (git viene de MinGit)" (-not ($setupText -match 'Invoke-PacmanWithRetry -'))
 Assert-True "modulos/vscode.ps1 descarga VS Code" ((Get-Content -Raw (Join-Path $RepoRoot "modulos/vscode.ps1")) -match 'win32-x64-archive')
 
+# La ventana no desaparece al terminar: install.ps1 corre con iex en la consola del usuario,
+# donde 'exit' la cerraria; setup.ps1 atiende cualquier error con un trap que espera.
+$installAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $RepoRoot "install.ps1"), [ref]$null, [ref]$null)
+$exits = $installAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] }, $true)
+Assert-True "install.ps1 no usa exit (cerraria la ventana del usuario)" (@($exits).Count -eq 0)
+$setupAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $RepoRoot "setup.ps1"), [ref]$null, [ref]$null)
+$traps = $setupAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.TrapStatementAst] }, $false)
+Assert-True "setup.ps1 tiene un trap que muestra el error y espera" (@($traps).Count -ge 1)
+
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Wait-AntesDeCerrar")))
+$prevCI = $env:CI
+try {
+    $env:CI = "true"
+    $salida = (& { Wait-AntesDeCerrar -ConError -Mensaje "aviso de prueba" } 6>&1) | Out-String
+    Assert-True "Wait-AntesDeCerrar no bloquea en CI y muestra el error y el aviso" ($salida -match "errores" -and $salida -match "aviso de prueba")
+    $env:CI = $null
+    $salida = (& { Wait-AntesDeCerrar -Yes } 6>&1) | Out-String
+    Assert-True "Wait-AntesDeCerrar no bloquea con -Yes" ($salida -notmatch "errores")
+} finally {
+    $env:CI = $prevCI
+}
+
 # ============================================================
 # 1. Invoke-DownloadWithRetry: reintentos uniformes de descargas
 # ============================================================

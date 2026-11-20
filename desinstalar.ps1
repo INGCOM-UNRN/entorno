@@ -11,6 +11,25 @@ if ([string]::IsNullOrEmpty($portableRoot)) {
     $portableRoot = (Get-Location).Path
 }
 
+# La ventana no desaparece al terminar (con exito, cancelado o con error): se abre con
+# "Ejecutar con PowerShell" y el resultado tiene que poder leerse.
+$libInstalador = Join-Path $portableRoot "lib\instalador.ps1"
+if (Test-Path $libInstalador) {
+    . $libInstalador
+} else {
+    function Wait-AntesDeCerrar {
+        param([switch]$ConError)
+        if ($ConError) { Write-Host "Termino con errores: revisa los mensajes de arriba." -ForegroundColor Red }
+        try { if (-not [Console]::IsInputRedirected) { $null = Read-Host "Presiona Enter para terminar" } } catch { }
+    }
+}
+trap {
+    Write-Host ""
+    Write-Host "ERROR: $_" -ForegroundColor Red
+    Wait-AntesDeCerrar -ConError
+    break
+}
+
 # Resolver el nombre del directorio HOME portable desde .env
 $homeDirName = "home"
 $envFile = Join-Path $portableRoot ".env"
@@ -65,6 +84,7 @@ Write-Host ""
 $choice = Read-Host "Esta accion es IRREVERSIBLE. Deseas desinstalar? (s/n)"
 if ($choice -notmatch "^[sS]$") {
     Write-Host "Operacion cancelada. No se modifico nada." -ForegroundColor Green
+    Wait-AntesDeCerrar
     exit 0
 }
 
@@ -78,3 +98,4 @@ foreach ($t in $targets) {
 Write-Host "`n=== DESINSTALACION COMPLETADA ===" -ForegroundColor Green
 Write-Host "El repositorio quedo limpio; podes volver a inicializar el entorno en cualquier"
 Write-Host "momento ejecutando setup.ps1 (Windows) o usando la variante linux/." -ForegroundColor Green
+Wait-AntesDeCerrar

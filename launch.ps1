@@ -83,9 +83,13 @@ if (-not (Test-Path $wezConfigPath)) {
     $content = [System.IO.File]::ReadAllText($wezConfigPath, [System.Text.Encoding]::UTF8)
     $fixed = $content -replace 'MSYSTEM\s*=\s*"(CLANG|MINGW)64"', 'MSYSTEM = "UCRT64"'
     $fixed = $fixed -replace 'msys64/(clang|mingw)64/', 'msys64/ucrt64/'
+    # Que la ventana no desaparezca si bash termina con error (instalaciones anteriores)
+    if ($fixed -notmatch 'exit_behavior' -and $fixed -match '(?m)^config\.default_prog.*$') {
+        $fixed = $fixed -replace '(?m)^(config\.default_prog.*)$', ('$1' + "`nconfig.exit_behavior = `"CloseOnCleanExit`"")
+    }
     if ($fixed -ne $content) {
         [System.IO.File]::WriteAllText($wezConfigPath, $fixed, $utf8NoBom)
-        Write-Host "[INFO] wezterm.lua normalizado a UCRT64." -ForegroundColor DarkGray
+        Write-Host "[INFO] wezterm.lua de una instalacion anterior actualizado." -ForegroundColor DarkGray
     }
 }
 
@@ -115,3 +119,7 @@ if (Test-Path $wezExe) {
     }
     & $bashPath --login -i
 }
+
+# Exito explicito: el codigo de salida de bash no es un error del lanzador (launch.bat pausa
+# solo si este script falla).
+exit 0

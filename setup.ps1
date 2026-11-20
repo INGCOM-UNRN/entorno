@@ -21,6 +21,47 @@ param(
     [string[]]$Modulos
 )
 
+# ------------------------------------------------------------------
+# La ventana no desaparece al terminar
+# ------------------------------------------------------------------
+# Si setup.ps1 se abre con "Ejecutar con PowerShell", desde un .bat o desde update-env.sh,
+# la ventana se cierra en cuanto termina el script: un error se veria un instante y nada mas.
+# Por eso espera una tecla al final, con exito o con error. Solo pausa la ejecucion externa
+# (al relanzarse tras autoactualizarse, P1_SETUP_RELANZADO marca la interna) y nunca sin
+# consola interactiva (-Yes, CI). Se define aca y no en lib\: install.ps1 descarga solo
+# setup.ps1, asi que en la primera ejecucion lib\ todavia no existe.
+$script:esEjecucionRaiz = ($env:P1_SETUP_RELANZADO -ne "1")
+$script:pausaHecha = $false
+$script:instalacionOk = $false
+$script:modulosFallidos = @()
+function Wait-FinSetup {
+    param([switch]$ConError, [string]$Mensaje = "")
+    if (-not $script:esEjecucionRaiz -or $script:pausaHecha) { return }
+    $script:pausaHecha = $true
+    if ($ConError) {
+        Write-Host ""
+        Write-Host "La instalacion no termino: revisa el error de arriba (el detalle completo queda en install.log)." -ForegroundColor Red
+        Write-Host "Podes volver a ejecutar setup.ps1: retoma lo pendiente y reutiliza lo ya descargado." -ForegroundColor Yellow
+    }
+    if ($Mensaje) { Write-Host $Mensaje -ForegroundColor Yellow }
+    if ($Yes -or $env:CI) { return }
+    try {
+        if ([Console]::IsInputRedirected) { return }
+    } catch {
+        return
+    }
+    if (-not [Environment]::UserInteractive) { return }
+    Write-Host ""
+    $null = Read-Host "Presiona Enter para terminar"
+}
+# Cualquier error no manejado (tambien los de antes del bloque principal) se muestra y espera
+trap {
+    Write-Host ""
+    Write-Host "ERROR: $_" -ForegroundColor Red
+    Wait-FinSetup -ConError
+    break
+}
+
 $ErrorActionPreference = "Stop"
 
 # Acelerar Invoke-WebRequest en Windows PowerShell 5.1 (la barra de progreso es hasta 10x mas lenta)
@@ -322,7 +363,9 @@ try {
         $localSetup = Join-Path $portableRoot "setup.ps1"
         $env:P1_SETUP_RELANZADO = "1"
         & $localSetup @newArgs
-        exit $LASTEXITCODE
+        # Si la ejecucion interna fallo, su error llega hasta aca y lo atiende el trap
+        $script:instalacionOk = $true
+        exit 0
     }
 }
 
@@ -425,6 +468,7 @@ if ($hasSpaces -or $hasNonAscii -or $hasSyncFolder) {
         $choice = Read-Host "Deseas continuar con la instalacion de todas formas? (s/n)"
         if ($choice -notmatch "^[sS]$") {
             Write-Host "Instalacion cancelada." -ForegroundColor Red
+            Wait-FinSetup
             return
         }
         Write-Host "Continuando con la instalacion bajo riesgo del usuario...`n" -ForegroundColor Yellow
@@ -1466,6 +1510,7 @@ foreach ($nombre in $modulosAEjecutar) {
     } catch {
         Write-Warning "El modulo '$nombre' fallo: $_"
         Write-Warning "La base quedo instalada. Reintenta el modulo con instalar-$nombre.bat."
+        $script:modulosFallidos += $nombre
     }
 }
 
@@ -1600,6 +1645,7 @@ if ($ImportHostConfig) {
     if (Test-Path (Join-Path $portableRoot ".vscode_complete")) {
         Write-Host "Ejecuta 'launch-vscode.bat' para iniciar VS Code." -ForegroundColor Green
     }
+    $script:instalacionOk = $true
 }
 finally {
     if ($transcriptStarted) {
@@ -1612,4 +1658,13 @@ finally {
             # Ignorar si no esta transcribiendo en este momento
         }
     }
+    # Exito (o modulos con problemas): esperar antes de cerrar. Los errores los atiende el trap.
+    if ($script:instalacionOk) {
+        $avisoModulos = ""
+        if ($script:modulosFallidos.Count -gt 0) {
+            $avisoModulos = "Atencion: no se pudieron instalar los modulos: $($script:modulosFallidos -join ', '). Reintentalos con instalar-<modulo>.bat."
+        }
+        Wait-FinSetup -Mensaje $avisoModulos
+    }
 }
+exit 0

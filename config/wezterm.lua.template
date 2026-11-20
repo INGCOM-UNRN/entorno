@@ -9,6 +9,9 @@ end
 
 local bash_path = portable_root .. "msys64/usr/bin/bash.exe"
 config.default_prog = { bash_path, "--login", "-i" }
+-- Si bash termina con error (por ejemplo, un .bashrc roto), la ventana queda abierta
+-- mostrando el mensaje en lugar de desaparecer; con 'exit' normal se cierra.
+config.exit_behavior = "CloseOnCleanExit"
 
 -- Configurar entorno heredado forzando el HOME portable (aislado del sistema host)
 local home_dir = portable_root .. "@HOME_DIR_NAME@"

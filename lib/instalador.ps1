@@ -317,3 +317,29 @@ function Invoke-NativeQuiet {
         return 1
     }
 }
+
+# Espera una tecla antes de terminar, para que la ventana no desaparezca con el resultado
+# (con exito o, sobre todo, con un error) cuando el script se abrio con doble clic, con
+# "Ejecutar con PowerShell" o desde un .bat. Sin consola interactiva (-Yes, CI, entrada
+# redirigida) no espera: los laboratorios y el CI siguen siendo desatendidos.
+function Wait-AntesDeCerrar {
+    param(
+        [switch]$ConError,
+        [switch]$Yes,
+        [string]$Mensaje = ""
+    )
+    if ($ConError) {
+        Write-Host ""
+        Write-Host "Termino con errores: revisa los mensajes de arriba." -ForegroundColor Red
+    }
+    if ($Mensaje) { Write-Host $Mensaje -ForegroundColor Yellow }
+    if ($Yes -or $env:CI) { return }
+    try {
+        if ([Console]::IsInputRedirected) { return }
+    } catch {
+        return
+    }
+    if (-not [Environment]::UserInteractive) { return }
+    Write-Host ""
+    $null = Read-Host "Presiona Enter para terminar"
+}

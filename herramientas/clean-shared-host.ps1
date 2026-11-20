@@ -6,6 +6,25 @@ $ErrorActionPreference = "Stop"
 # Vive en herramientas\: la raiz del entorno es la carpeta padre
 $portableRoot = Split-Path -Parent $PSScriptRoot
 
+# La ventana no desaparece al terminar (con exito, cancelado o con error): se abre con
+# "Ejecutar con PowerShell" y el resultado tiene que poder leerse.
+$libInstalador = Join-Path $portableRoot "lib\instalador.ps1"
+if (Test-Path $libInstalador) {
+    . $libInstalador
+} else {
+    function Wait-AntesDeCerrar {
+        param([switch]$ConError)
+        if ($ConError) { Write-Host "Termino con errores: revisa los mensajes de arriba." -ForegroundColor Red }
+        try { if (-not [Console]::IsInputRedirected) { $null = Read-Host "Presiona Enter para terminar" } } catch { }
+    }
+}
+trap {
+    Write-Host ""
+    Write-Host "ERROR: $_" -ForegroundColor Red
+    Wait-AntesDeCerrar -ConError
+    break
+}
+
 # Cargar configuracion de directorio HOME
 $homeDirName = "home"
 $envFile = Join-Path $portableRoot ".env"
@@ -50,6 +69,7 @@ Write-Host ""
 $choice = Read-Host "Esta accion es IRREVERSIBLE. Deseas continuar? (s/n)"
 if ($choice -notmatch "^[sS]$") {
     Write-Host "Operacion cancelada. Tus datos no han sido modificados." -ForegroundColor Green
+    Wait-AntesDeCerrar
     exit 0
 }
 
@@ -168,3 +188,4 @@ foreach ($marker in $completeMarkers) {
 
 Write-Host "`n=== LIMPIEZA COMPLETADA CON EXITO ===" -ForegroundColor Green
 Write-Host "El entorno portable se encuentra libre de credenciales y datos personales." -ForegroundColor Green
+Wait-AntesDeCerrar
