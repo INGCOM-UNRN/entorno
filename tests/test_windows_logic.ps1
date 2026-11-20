@@ -43,6 +43,7 @@ foreach ($rel in @("setup.ps1", "lib/instalador.ps1", "modulos/compiladores.ps1"
 $setupText = Get-Content -Raw (Join-Path $RepoRoot "setup.ps1")
 Assert-True "setup.ps1 no instala packages-compiladores.txt" (-not ($setupText -match 'packages-compiladores\.txt"\)'))
 Assert-True "setup.ps1 no descarga VS Code" (-not ($setupText -match 'win32-x64-archive'))
+Assert-True "setup.ps1 no usa pacman (git viene de MinGit)" (-not ($setupText -match 'Invoke-PacmanWithRetry -'))
 Assert-True "modulos/vscode.ps1 descarga VS Code" ((Get-Content -Raw (Join-Path $RepoRoot "modulos/vscode.ps1")) -match 'win32-x64-archive')
 
 # ============================================================

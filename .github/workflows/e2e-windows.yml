@@ -26,20 +26,20 @@ jobs:
         shell: pwsh
         run: ./setup.ps1 -Yes -Modulos ninguno
 
-      - name: La base trae uv y Python con las dependencias de Ripley, sin compilador ni VS Code
+      - name: La base trae git (MinGit), uv y Python con las dependencias de Ripley, sin compilador ni VS Code
         timeout-minutes: 5
         shell: pwsh
         run: |
           Import-Module ./env.common.psm1 -Force
           $null = Set-PortableSession -PortableRoot (Get-Location).Path
-          foreach ($archivo in @("bin/uv.exe", "python/ACTUAL", ".install_complete", ".msys_complete")) {
+          foreach ($archivo in @("bin/uv.exe", "python/ACTUAL", "mingit/cmd/git.exe", ".install_complete", ".msys_complete")) {
             if (-not (Test-Path $archivo)) { throw "Falta $archivo en la instalacion base" }
           }
-          foreach ($archivo in @(".compiladores_complete", ".vscode_complete", "vscode/Code.exe", "msys64/ucrt64/bin/gcc.exe")) {
+          foreach ($archivo in @(".compiladores_complete", ".vscode_complete", "vscode/Code.exe", "msys64/ucrt64/bin/gcc.exe", "msys64/usr/bin/git.exe")) {
             if (Test-Path $archivo) { throw "La base no deberia instalar $archivo" }
           }
-          & ./msys64/usr/bin/bash.exe --login -c 'set -e; uv --version; python3 --version; python3 -c "import typer, rich"; git --version; ripley --help >/dev/null'
-          if ($LASTEXITCODE -ne 0) { throw "La consola de la base no encuentra uv, Python, git o Ripley" }
+          & ./msys64/usr/bin/bash.exe --login -c 'set -e; uv --version; python3 --version; python3 -c "import typer, rich"; ripley --help >/dev/null; case "$(command -v git)" in */mingit/cmd/git*) ;; *) echo "git no es el de MinGit: $(command -v git)"; exit 1;; esac; test "$(git -c alias.prueba="!echo shell-ok" prueba)" = shell-ok'
+          if ($LASTEXITCODE -ne 0) { throw "La consola de la base no encuentra uv, Python, Ripley o el git de MinGit (con alias de shell)" }
 
       - name: Módulo de compiladores instalado después
         timeout-minutes: 25

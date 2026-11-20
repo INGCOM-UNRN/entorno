@@ -30,6 +30,7 @@ $targets = @(
     @{ Path = Join-Path $portableRoot "vscode";  Desc = "VS Code Portable y extensiones" },
     @{ Path = Join-Path $portableRoot "wezterm"; Desc = "Terminal WezTerm" },
     @{ Path = Join-Path $portableRoot "python";  Desc = "Python de la base (instalado con uv)" },
+    @{ Path = Join-Path $portableRoot "mingit";  Desc = "Git de la base (MinGit)" },
     @{ Path = Join-Path $portableRoot "descargas"; Desc = "Cache de descargas e instaladores" },
     @{ Path = Join-Path $portableRoot "downloads"; Desc = "Cache de descargas (nombre historico)" },
     @{ Path = Join-Path $portableRoot "local";   Desc = "Librerias instaladas con install-lib.sh" },

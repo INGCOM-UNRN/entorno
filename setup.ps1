@@ -1,8 +1,8 @@
 # setup.ps1 - Instalador del entorno portable (Windows), en dos fases:
 #
-#   1. Base (este script): MSYS2 (bash, git), uv, Python con las dependencias de las
-#      herramientas de la catedra, GitHub CLI, jonesy, WezTerm y Ripley. Es liviana y
-#      alcanza para usar el entorno en contextos que no compilan C.
+#   1. Base (este script): MSYS2 (bash), Git (MinGit), uv, Python con las dependencias de
+#      las herramientas de la catedra, GitHub CLI, jonesy, WezTerm y Ripley. Es liviana, no
+#      usa pacman y alcanza para usar el entorno en contextos que no compilan C.
 #   2. Modulos opcionales (modulos\*.ps1), instalables en cualquier momento:
 #        compiladores  gcc, gdb, make, cmake y herramientas de analisis (pacman)
 #        vscode        VS Code portable con sus extensiones
@@ -197,10 +197,10 @@ try {
     if ($isGitRepo) {
         Write-Host "Repositorio Git detectado. Intentando actualizar via 'git pull'..." -ForegroundColor Cyan
         
+        # Git del entorno (MinGit), el de MSYS2 de instalaciones anteriores o el del sistema
         $gitExe = "git"
-        $msysGit = Join-Path $portableRoot "msys64\usr\bin\git.exe"
-        if (Test-Path $msysGit) {
-            $gitExe = $msysGit
+        foreach ($candidatoGit in @((Join-Path $portableRoot "mingit\cmd\git.exe"), (Join-Path $portableRoot "msys64\usr\bin\git.exe"))) {
+            if (Test-Path $candidatoGit) { $gitExe = $candidatoGit; break }
         }
         
         try {
@@ -590,41 +590,8 @@ if ($isUpdateMode -or -not $isMsysComplete) {
     $bashPath = Join-Path $msysDir "usr\bin\bash.exe"
     & $bashPath --login -c "exit"
 
-    # Acelerar la instalacion inicial habilitando descargas paralelas en pacman
+    # Descargas paralelas en pacman: la base no usa pacman, pero el modulo de compiladores si
     & $bashPath --login -c "sed -i -E 's/^#?[[:space:]]*ParallelDownloads.*/ParallelDownloads = 5/' /etc/pacman.conf"
-
-    # Espejo regional de pacman: medir latencia contra candidatos (con prioridad
-    # sudamericana para Red UNRN) y configurar el mas rapido como primera opcion.
-    $null = Select-PacmanMirrorByLatency -MsysDir $msysDir
-
-    # Resolver la ruta de cache local y pasarla a pacman utilizando el ejecutable cygpath nativo
-    $cygpathExe = Join-Path $msysDir "usr\bin\cygpath.exe"
-    $unixCacheDir = & $cygpathExe -u "$descargasDir/pacman_cache"
-    $unixCacheDir = $unixCacheDir.Trim()
-
-    Write-Host "Sincronizando base de datos de pacman y actualizando paquetes del sistema..." -ForegroundColor Cyan
-    try {
-        Invoke-PacmanWithRetry -BashPath $bashPath -Arguments "-Syu --noconfirm --cachedir '$unixCacheDir'"
-    } catch {
-        Write-Warning "No se pudo sincronizar o actualizar pacman (posiblemente sin internet). Intentando instalar paquetes locales..."
-    }
-
-    Write-Host "Consolidando actualizaciones del entorno..." -ForegroundColor Cyan
-    try {
-        Invoke-PacmanWithRetry -BashPath $bashPath -Arguments "-Su --noconfirm --cachedir '$unixCacheDir'"
-    } catch {
-        Write-Warning "Fallo al consolidar actualizaciones (posiblemente sin internet)."
-    }
-
-    # ==========================================
-    # 2.5 Paquetes de la base (packages-base.txt)
-    # ==========================================
-    # Solo lo indispensable para la consola (git). El compilador y sus herramientas son el
-    # modulo opcional 'compiladores' (packages-compiladores.txt).
-    $packages = Get-PackageList -Path (Join-Path $portableRoot "packages-base.txt")
-    $pkgString = $packages -join " "
-    Write-Host "Instalando paquetes de la base: $pkgString" -ForegroundColor Cyan
-    Invoke-PacmanWithRetry -BashPath $bashPath -Arguments "-S --needed --noconfirm --cachedir '$unixCacheDir' $pkgString"
 
     # Configurar alias en el HOME portable
     $bashrcPath = Join-Path $homeDir ".bashrc"
@@ -681,7 +648,7 @@ if ($isUpdateMode -or -not $isMsysComplete) {
     }
     Set-Content -Path (Join-Path $portableRoot ".msys_complete") -Value "Complete"
 } else {
-    Write-Host "[Actualizacion] Base de MSYS2 ya configurada. Se omite pacman para agilizar la ejecucion." -ForegroundColor Green
+    Write-Host "[Actualizacion] Base de MSYS2 ya configurada." -ForegroundColor Green
 }
 
 # ==========================================
@@ -808,6 +775,94 @@ if (Test-Path $requirementsBase) {
     & $uvExe pip install --python $pythonExe --break-system-packages -r $requirementsBase
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "No se pudieron instalar las dependencias Python de la base (codigo $LASTEXITCODE). Ripley no va a funcionar hasta reintentar setup.ps1."
+    }
+}
+
+# ==========================================
+# 3.5 Git (MinGit)
+# ==========================================
+# MinGit es la distribucion minima de Git for Windows pensada para uso en consola: un
+# zip autocontenido, sin instalador ni pacman. Reemplaza al git de MSYS2 para que la base
+# no tenga que sincronizar ni actualizar pacman. Va en mingit\ y su carpeta cmd\ entra
+# al PATH de la sesion (env.common.psm1). Como es un git nativo de Windows, uv
+# ('uv tool install git+...') y VS Code lo usan directamente.
+$mingitDir = Join-Path $portableRoot "mingit"
+$mingitExe = Join-Path $mingitDir "cmd\git.exe"
+$mingitVersionFile = Join-Path $mingitDir ".version"
+
+$mingitUrl = $null
+$mingitExpected = $null
+if ($isUpdateMode -or $Latest -or -not (Test-Path $mingitExe)) {
+    $mingitUrl = Get-Pinned 'mingit'
+    if ($mingitUrl) {
+        $mingitExpected = Get-Pinned 'mingit_sha256'
+        Write-Host "MinGit fijado por el manifiesto de versiones." -ForegroundColor DarkGray
+    } else {
+        try {
+            $gitRelease = Get-GitHubApiCached -Url "https://api.github.com/repos/git-for-windows/git/releases/latest"
+            $gitAsset = $gitRelease.assets | Where-Object { $_.name -match '^MinGit-[0-9.]+-64-bit\.zip$' } | Select-Object -First 1
+            if ($gitAsset) {
+                $mingitUrl = $gitAsset.browser_download_url
+                # La API de GitHub publica la suma de cada artefacto como "sha256:<hex>"
+                if ($gitAsset.digest -and $gitAsset.digest -match '^sha256:([0-9a-fA-F]{64})$') {
+                    $mingitExpected = $Matches[1]
+                }
+                Write-Host "Ultima version detectada de MinGit: $($gitAsset.name)" -ForegroundColor Green
+            }
+        } catch {
+            Write-Warning "Fallo al consultar la API de GitHub para MinGit. Usando fallback fijo."
+        }
+        if (-not $mingitUrl) {
+            $mingitUrl = Get-Pinned 'mingit_fallback'
+            $mingitExpected = Get-Pinned 'mingit_sha256'
+        }
+    }
+}
+
+$installedMingitUrl = ""
+if (Test-Path $mingitVersionFile) { $installedMingitUrl = (Get-Content $mingitVersionFile -Raw).Trim() }
+
+if ((Test-Path $mingitExe) -and (-not $mingitUrl -or $mingitUrl -eq $installedMingitUrl)) {
+    Write-Host "Git (MinGit) ya esta instalado en mingit\." -ForegroundColor Green
+} elseif (-not $mingitUrl) {
+    throw "No se pudo resolver la URL de descarga de MinGit (sin API de GitHub ni 'mingit_fallback' en versions.json)."
+} else {
+    $mingitZipName = Get-FileNameFromUrl -Url $mingitUrl -DefaultName "MinGit-64-bit.zip"
+    $mingitZipPath = Join-Path $descargasDir $mingitZipName
+    $mingitExtractDir = Join-Path $descargasDir "mingit_extract"
+    try {
+        Write-Host "Descargando MinGit desde $mingitUrl..." -ForegroundColor Cyan
+        Invoke-DownloadWithRetry -Url $mingitUrl -OutFile $mingitZipPath
+        $mingitActual = (Get-FileHash -Path $mingitZipPath -Algorithm SHA256).Hash.ToLower()
+        if ($mingitExpected) {
+            if ($mingitActual -ne $mingitExpected.Trim().ToLower()) {
+                throw "La suma SHA-256 de $mingitZipName no coincide con la publicada (esperada: $($mingitExpected.Trim().ToLower()); descargada: $mingitActual)."
+            }
+            Write-Host "Suma SHA-256 de MinGit verificada." -ForegroundColor Green
+        } else {
+            Write-Warning "No hay suma SHA-256 publicada para $mingitZipName (defini 'mingit_sha256' en versions.json para verificarla)."
+        }
+
+        # Extraer aparte y reemplazar al final: un fallo no deja un git a medias
+        if (Test-Path $mingitExtractDir) { Remove-Item -Path $mingitExtractDir -Recurse -Force }
+        Expand-Archive -Path $mingitZipPath -DestinationPath $mingitExtractDir -Force
+        if (-not (Test-Path (Join-Path $mingitExtractDir "cmd\git.exe"))) {
+            throw "El ZIP de MinGit no contiene cmd\git.exe."
+        }
+        if (Test-Path $mingitDir) { Remove-Item -Path $mingitDir -Recurse -Force }
+        Move-Item -Path $mingitExtractDir -Destination $mingitDir
+        Set-Content -Path $mingitVersionFile -Value $mingitUrl
+
+        # Configuracion de sistema (queda dentro de mingit\, nunca en el host):
+        # - sin credential manager: guardaria tokens en el Administrador de credenciales de
+        #   Windows del equipo (configure-git.sh usa el de gh, dentro del HOME portable);
+        # - autocrlf=input, igual que el git de MSYS2 al que reemplaza.
+        $null = Invoke-NativeQuiet -FilePath $mingitExe -ArgumentList @("config", "--system", "--unset-all", "credential.helper")
+        $null = Invoke-NativeQuiet -FilePath $mingitExe -ArgumentList @("config", "--system", "core.autocrlf", "input")
+        Write-Host "Git instalado en mingit\ ($((& $mingitExe --version) -join ' '))." -ForegroundColor Green
+    } finally {
+        if (Test-Path $mingitExtractDir) { Remove-Item -Path $mingitExtractDir -Recurse -Force -ErrorAction SilentlyContinue }
+        if (Test-Path $mingitZipPath) { Remove-Item -Path $mingitZipPath -Force -ErrorAction SilentlyContinue }
     }
 }
 
@@ -1488,7 +1543,8 @@ if ($ImportHostConfig) {
     # Resumen de componentes para el usuario
     Write-Host "`n--- ESTADO DE COMPONENTES ---" -ForegroundColor Cyan
     $summaryComponents = @(
-        @{ Name = "MSYS2 base (bash, git)";   Ok = (Test-Path (Join-Path $msysDir "usr\bin\bash.exe")) },
+        @{ Name = "MSYS2 base (bash)";        Ok = (Test-Path (Join-Path $msysDir "usr\bin\bash.exe")) },
+        @{ Name = "Git (MinGit)";             Ok = (Test-Path (Join-Path $portableRoot "mingit\cmd\git.exe")) },
         @{ Name = "uv";                       Ok = (Test-Path (Join-Path $portableRoot "bin\uv.exe")) },
         @{ Name = "Python";                   Ok = [bool](Get-PortablePythonDir -PortableRoot $portableRoot) },
         @{ Name = "WezTerm";                  Ok = (Test-Path (Join-Path $portableRoot "wezterm\wezterm.exe")) },

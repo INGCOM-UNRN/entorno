@@ -7,7 +7,9 @@
     "jonesy_sha256 y ripley_sha256: suma esperada del artefacto; en null se usa el SHA256SUMS",
     "publicado en el mismo release (si no coincide, la instalacion se cancela).",
     "uv: URL del zip de Windows (null = ultimo release); se verifica contra el <zip>.sha256 publicado.",
-    "python: version menor del Python de la base, instalada con uv."
+    "python: version menor del Python de la base, instalada con uv.",
+    "mingit: URL del zip de MinGit (null = ultimo release de Git for Windows, verificado con el digest de la API);",
+    "mingit_sha256: suma esperada para el pin o el fallback (en null solo se advierte)."
   ],
   "canal": "2026-c1",
   "msys2": null,
@@ -20,6 +22,9 @@
   "uv": null,
   "uv_fallback": "https://github.com/astral-sh/uv/releases/download/0.8.0/uv-x86_64-pc-windows-msvc.zip",
   "python": "3.12",
+  "mingit": null,
+  "mingit_fallback": "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.1/MinGit-2.47.1-64-bit.zip",
+  "mingit_sha256": null,
   "jonesy": null,
   "jonesy_fallback": "https://github.com/INGCOM-UNRN-P1/jonesy/releases/download/v0.1.0/jonesy-0.1.0-windows-x86_64.zip",
   "jonesy_sha256": null,

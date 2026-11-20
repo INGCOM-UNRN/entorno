@@ -1,6 +1,6 @@
 # Paquetes del modulo opcional "compiladores" del entorno portable (Windows, MSYS2 UCRT64)
 # Fuente única compartida por modulos/compiladores.ps1, bin/update-packages.sh y
-# bin/download-baseline.sh. La base (setup.ps1) instala solo packages-base.txt.
+# bin/download-baseline.sh. La base (setup.ps1) no usa pacman: git es MinGit y Python viene de uv.
 # Formato: <paquete> [ # comentario ]
 
 mingw-w64-ucrt-x86_64-toolchain          # Metapaquete: GCC, Binutils, GDB y make para compilación nativa UCRT

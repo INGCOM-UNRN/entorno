@@ -106,6 +106,15 @@ try {
     $expectedPyPrefix = "$(Join-Path $fixture 'bin');$pyDir;$(Join-Path $pyDir 'Scripts');$(Join-Path $fixture 'msys64\ucrt64\bin');"
     Assert-True "PATH con el Python de la base entre bin y el compilador" ($env:PATH.StartsWith($expectedPyPrefix))
 
+    # Con MinGit instalado, su cmd\ va despues de Python y antes del compilador
+    $gitCmd = Join-Path $fixture "mingit\cmd"
+    New-Item -ItemType Directory -Path $gitCmd -Force | Out-Null
+    Set-Content (Join-Path $gitCmd "git.exe") -Value ""
+    $env:PATH = $prevPath
+    $null = Set-PortableSession -PortableRoot $fixture -HomeDirName "curso"
+    $expectedGitPrefix = "$(Join-Path $fixture 'bin');$pyDir;$(Join-Path $pyDir 'Scripts');$gitCmd;$(Join-Path $fixture 'msys64\ucrt64\bin');"
+    Assert-True "PATH con el git de MinGit entre Python y el compilador" ($env:PATH.StartsWith($expectedGitPrefix))
+
     Assert-True "integraciones VSCODE_ROOT/WEZTERM_ROOT" (
         $env:VSCODE_ROOT -eq (Join-Path $fixture "vscode") -and $env:WEZTERM_ROOT -eq (Join-Path $fixture "wezterm"))
 } finally {

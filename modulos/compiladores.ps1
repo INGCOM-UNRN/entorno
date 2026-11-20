@@ -49,6 +49,13 @@ try {
     $packages = Get-PackageList -Path (Join-Path $portableRoot "packages-compiladores.txt")
     $pkgString = $packages -join " "
 
+    # Espejo de pacman mas rapido (prioridad sudamericana para Red UNRN); se mide una sola
+    # vez: setup.ps1 ya no usa pacman, asi que la primera eleccion la hace este modulo.
+    $mirrorList = Join-Path $msysDir "etc\pacman.d\mirrorlist.ucrt64"
+    if (-not ((Test-Path $mirrorList) -and (Select-String -Path $mirrorList -Pattern 'Espejo seleccionado automaticamente' -Quiet))) {
+        $null = Select-PacmanMirrorByLatency -MsysDir $msysDir
+    }
+
     $cygpathExe = Join-Path $msysDir "usr\bin\cygpath.exe"
     $unixCacheDir = (& $cygpathExe -u "$descargasDir/pacman_cache").Trim()
 

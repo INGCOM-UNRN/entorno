@@ -156,7 +156,7 @@ function Set-PortableSession {
     $env:CHERE_INVOKING = "1"
     $env:LANG = "es_AR.UTF-8"
 
-    # Scripts internos, Python de la base, compilador y userland de MSYS2 al frente del PATH.
+    # Scripts internos, Python y Git de la base, compilador y userland de MSYS2 al frente del PATH.
     # El Python de la base (uv) va antes que ucrt64\bin: en instalaciones viejas el modulo de
     # compiladores traia otro python3 y la base debe ganar. Las consolas bash heredan este
     # PATH (MSYS2_PATH_TYPE=inherit) para que vean el mismo Python que VS Code.
@@ -168,7 +168,13 @@ function Set-PortableSession {
     if ($pythonDir) {
         $pythonPaths = "$pythonDir;$(Join-Path $pythonDir 'Scripts');"
     }
-    $env:PATH = "$binPath;$pythonPaths$gccPath;$usrPath;$env:PATH"
+    # Git de la base (MinGit): cmd\ trae solo git.exe y sus wrappers, sin pisar el userland
+    $gitPaths = ""
+    $mingitCmd = Join-Path $PortableRoot "mingit\cmd"
+    if (Test-Path (Join-Path $mingitCmd "git.exe")) {
+        $gitPaths = "$mingitCmd;"
+    }
+    $env:PATH = "$binPath;$pythonPaths$gitPaths$gccPath;$usrPath;$env:PATH"
     $env:MSYS2_PATH_TYPE = "inherit"
     Set-PortableUvEnvironment -PortableRoot $PortableRoot
 

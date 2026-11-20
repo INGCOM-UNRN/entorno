@@ -198,20 +198,16 @@ assert "el informe incluye versión y encabezado" \
 rm -f "$SANDBOX/repo/diagnose.log"
 
 # --- Integridad del repositorio: fuentes únicas sin drift ---
-assert "packages-base.txt y packages-compiladores.txt sin duplicados, no vacías ni solapadas" python3 -c "
+assert "packages-compiladores.txt no tiene paquetes duplicados ni está vacío" python3 -c "
 import sys
-def leer(nombre):
-    lineas = [l.split('#')[0].strip() for l in open('$REPO_ROOT/' + nombre, encoding='utf-8')]
-    return [l for l in lineas if l]
-base, comp = leer('packages-base.txt'), leer('packages-compiladores.txt')
-ok = base and comp and len(base) == len(set(base)) and len(comp) == len(set(comp)) and not set(base) & set(comp)
-sys.exit(0 if ok else 1)
+lineas = [l.split('#')[0].strip() for l in open('$REPO_ROOT/packages-compiladores.txt', encoding='utf-8')]
+paquetes = [l for l in lineas if l]
+sys.exit(0 if paquetes and len(paquetes) == len(set(paquetes)) else 1)
 "
-assert "Python y uv no vienen de pacman (son de la base vía uv)" python3 -c "
+assert "git, Python y uv no vienen de pacman (son de la base: MinGit y uv)" python3 -c "
 import sys
-texto = open('$REPO_ROOT/packages-base.txt', encoding='utf-8').read() + open('$REPO_ROOT/packages-compiladores.txt', encoding='utf-8').read()
-paquetes = [l.split('#')[0].strip() for l in texto.splitlines()]
-sys.exit(1 if any(p.endswith(('-python', '-uv')) or '-python-' in p for p in paquetes) else 0)
+paquetes = [l.split('#')[0].strip() for l in open('$REPO_ROOT/packages-compiladores.txt', encoding='utf-8')]
+sys.exit(1 if any(p == 'git' or p.endswith(('-python', '-uv')) or '-python-' in p for p in paquetes) else 0)
 "
 assert "versions.json es JSON válido con canal definido" python3 -c "
 import json, sys
