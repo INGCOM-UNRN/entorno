@@ -3,7 +3,7 @@
 #
 # Uso:
 #   ~/p1/entorno/desinstalar.sh [opciones]
-#   curl -fsSL https://raw.githubusercontent.com/INGCOM-UNRN-P1/entorno/main/desinstalar.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/INGCOM-UNRN/entorno/main/desinstalar.sh | bash
 #
 # Qué hace:
 #   - Quita el bloque '# >>> p1-entorno >>>' de ~/.bashrc, ~/.zshrc, ~/.bash_profile y ~/.profile.

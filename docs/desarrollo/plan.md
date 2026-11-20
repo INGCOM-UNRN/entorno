@@ -13,8 +13,8 @@ Este documento detalla la hoja de ruta para la construcción, verificación y ma
 ---
 
 ## Fase 2: Scripts de Automatización e Inicialización (Completado)
-*   [x] Creación de [setup.ps1](setup.ps1) con descarga dinámica via GitHub API y validación SHA256.
-*   [x] Diseño de los cargadores de consola [launch.bat](launch.bat) y [launch.ps1](launch.ps1).
+*   [x] Creación de [setup.ps1](../../setup.ps1) con descarga dinámica via GitHub API y validación SHA256.
+*   [x] Diseño de los cargadores de consola [launch.bat](../../launch.bat) y [launch.ps1](../../launch.ps1).
 *   [x] Configuración de exclusiones en `.gitignore` para no subir binarios al repositorio.
 
 ---
@@ -32,12 +32,12 @@ Este documento detalla la hoja de ruta para la construcción, verificación y ma
 *   [x] Habilitación del modo portable mediante la creación del directorio `vscode/data/`.
 *   [x] Configuración inicial aislada (`telemetry` inactivo, actualizaciones en modo manual, inhabilitación total de Copilot e integraciones de IA/LLM) y seteo predeterminado de terminal de integración `bash.exe` de MSYS2.
 *   [x] Instalación de extensiones necesarias (`C/C++ Extension Pack` y `Python Extension`) a través del CLI de VS Code de forma automática.
-*   [x] Creación de cargadores específicos [launch-vscode.bat](launch-vscode.bat) y [launch-vscode.ps1](launch-vscode.ps1) para propagar el `PATH` y variables de sesión.
+*   [x] Creación de cargadores específicos [launch-vscode.bat](../../launch-vscode.bat) y [launch-vscode.ps1](../../launch-vscode.ps1) para propagar el `PATH` y variables de sesión.
 
 ---
 
 ## Fase 5: Gestor de Librerías de C desde GitHub (Completado)
-*   [x] Diseño y desarrollo de [install-lib.sh](bin/install-lib.sh) para compilar e instalar librerías externas de forma desatendida dentro del prefijo portable `/ucrt64`.
+*   [x] Diseño y desarrollo de [install-lib.sh](../../bin/install-lib.sh) para compilar e instalar librerías externas de forma desatendida dentro del prefijo portable `/ucrt64`.
 *   [x] Soporte para múltiples modos de construcción:
     1. Recetas personalizadas `.portable-recipe.sh` en el repositorio.
     2. Proyectos CMake + Ninja automáticos.
@@ -48,7 +48,7 @@ Este documento detalla la hoja de ruta para la construcción, verificación y ma
 
 ## Fase 6: Configuración de Control de Versiones e Integración GitHub CLI (Completado)
 *   [x] Integración de GitHub CLI (`gh`) de manera portable descargado directamente desde sus releases oficiales en GitHub y guardado en `bin/gh.exe`.
-*   [x] Diseño del script [configure-git.sh](bin/configure-git.sh) para automatizar:
+*   [x] Diseño del script [configure-git.sh](../../bin/configure-git.sh) para automatizar:
     1. Firma de autoría de commits (`user.name` y `user.email`).
     2. Almacenamiento aislado de credenciales HTTPS de Git dentro del directorio portable (`home/.git-credentials`) mediante el helper `store`.
     3. Autenticación asistida para interactuar con la consola mediante GitHub CLI (`gh`).
@@ -56,7 +56,7 @@ Este documento detalla la hoja de ruta para la construcción, verificación y ma
 ---
 
 ## Fase 7: Empaquetamiento y Distribución Offline (Completado)
-*   [x] Diseño del script [package-env.ps1](package-env.ps1) que automatiza el empaquetamiento del entorno inicializado.
+*   [x] Diseño del script [package-env.ps1](../../herramientas/package-env.ps1) que automatiza el empaquetamiento del entorno inicializado.
 *   [x] Limpieza del almacenamiento de pacman (`pacman -Scc`) integrado en el script para reducir el tamaño final en disco de la entrega.
 *   [x] Aislamiento en la copia del paquete, excluyendo la base de datos de control de versiones `.git` y descargas/copias temporales del host.
 *   [x] Compresión final nativa a formato ZIP distribuible (`portable-env-offline.zip`).
@@ -64,14 +64,14 @@ Este documento detalla la hoja de ruta para la construcción, verificación y ma
 ---
 
 ## Fase 8: Script de Limpieza en Hosts Compartidos (Completado)
-*   [x] Diseño y desarrollo de [clean-shared-host.ps1](clean-shared-host.ps1) para desvincular identidades y claves personales en computadoras públicas o de terceros.
+*   [x] Diseño y desarrollo de [clean-shared-host.ps1](../../herramientas/clean-shared-host.ps1) para desvincular identidades y claves personales en computadoras públicas o de terceros.
 *   [x] Eliminación completa y segura del historial de comandos, llaves SSH privadas, credenciales de Git y extensiones personalizadas en VS Code.
 *   [x] Reconfiguración automatizada del entorno portable a su estado predeterminado inicial posterior a la limpieza, garantizando que el siguiente usuario pueda lanzar el terminal sin dependencias corruptas o caídas por directorios faltantes.
 
 ---
 
 ## Fase 9: Pruebas de Aceptación (Automatizadas + Residual Manual)
-El script [smoke.sh](bin/smoke.sh) (disponible también en `linux/bin/`) automatiza las verificaciones que no requieren interfaz gráfica ni privilegios. Ejecutalo dentro del terminal portable: compila/ejecuta C con cppcheck (**A**), valida Python/pip/uv con instalación aislada en venv del HOME portable (**B**), construye un proyecto CMake+Ninja (**C**), instala/desinstala una librería de prueba con manifiesto (**E-local**) y chequea la identidad de Git (**F-check**).
+El script [smoke.sh](../../bin/smoke.sh) (disponible también en `linux/bin/`) automatiza las verificaciones que no requieren interfaz gráfica ni privilegios. Ejecutalo dentro del terminal portable: compila/ejecuta C con cppcheck (**A**), valida Python/pip/uv con instalación aislada en venv del HOME portable (**B**), construye un proyecto CMake+Ninja (**C**), instala/desinstala una librería de prueba con manifiesto (**E-local**) y chequea la identidad de Git (**F-check**).
 
 Residual manual (requiere host Windows con entorno inicializado):
 *   [ ] **Prueba D:** IntelliSense de C/Python reconocido en VS Code Portable (terminal integrado UCRT64).
@@ -87,11 +87,11 @@ Residual manual (requiere host Windows con entorno inicializado):
 *   [x] **Registro de logs de instalación:** Capturar toda la salida de `setup.ps1` en `install.log` para diagnóstico técnico (troubleshooting), incluyendo metadatos del sistema, usuario ejecutor y hora exacta de inicio.
 *   [x] **Autocomprobación y autoactualización de scripts y entorno:** El script `setup.ps1` actualiza el repositorio (usando Git pull o descargando los scripts más nuevos de GitHub) antes de proceder con la actualización de los paquetes internos de MSYS2, VS Code y WezTerm.
 *   [x] **Verificación estricta de firma SHA y detección de estado de instalación:** Se mejora la verificación de firmas SHA256 para el instalador de MSYS2 (haciendo que el script falle inmediatamente ante discrepancias o firmas inválidas en lugar de continuar). Se introduce una lógica avanzada guiada por el estado del entorno (mediante indicadores de completitud `.install_complete`, `.msys_complete`, `.vscode_complete` y `.wezterm_complete`), permitiendo que ejecuciones múltiples del script setup finalicen instalaciones previas incompletas (reusando descargas válidas) o actualicen selectivamente el entorno sin reinstalaciones destructivas (verificando versiones y redirecciones web).
-*   [x] **Script de Actualización de Paquetes (Pacman):** Creación del script [update-packages.sh](bin/update-packages.sh) en `bin/` para actualizar la base de datos de pacman, actualizar los paquetes del sistema e instalar las herramientas obligatorias del entorno portable de forma unificada.
-*   [x] **Script de Diagnóstico de Entorno:** Creación del script [diagnose-env.sh](bin/diagnose-env.sh) en `bin/` para diagnosticar el estado del entorno portable, las herramientas instaladas (con sus versiones correspondientes), el listado completo de paquetes de pacman y el contenido de `bin/` en un informe detallado.
-*   [x] **Automatización de Descompresión:** Script [install-offline.ps1](install-offline.ps1) para asistir la instalación del ZIP distribuido: extracción acelerada (tar.exe con fallback), validación estructural, advertencia de rutas conflictivas y arranque opcional del terminal (`-Ejecutar`).
-*   [x] **Actualización Unificada de Paquetes:** Script [update-packages.sh](bin/update-packages.sh) que sincroniza pacman y garantiza el baseline completo leyendo `packages-baseline.txt` (fuente única), usando la caché portable.
-*   [x] **Verificador de Aceptación Automático:** [smoke.sh](bin/smoke.sh) automatiza las Pruebas A/B/C/E-local/F-check de la Fase 9 dentro del terminal portable.
+*   [x] **Script de Actualización de Paquetes (Pacman):** Creación del script [update-packages.sh](../../bin/update-packages.sh) en `bin/` para actualizar la base de datos de pacman, actualizar los paquetes del sistema e instalar las herramientas obligatorias del entorno portable de forma unificada.
+*   [x] **Script de Diagnóstico de Entorno:** Creación del script [diagnose-env.sh](../../bin/diagnose-env.sh) en `bin/` para diagnosticar el estado del entorno portable, las herramientas instaladas (con sus versiones correspondientes), el listado completo de paquetes de pacman y el contenido de `bin/` en un informe detallado.
+*   [x] **Automatización de Descompresión:** Script [install-offline.ps1](../../install-offline.ps1) para asistir la instalación del ZIP distribuido: extracción acelerada (tar.exe con fallback), validación estructural, advertencia de rutas conflictivas y arranque opcional del terminal (`-Ejecutar`).
+*   [x] **Actualización Unificada de Paquetes:** Script [update-packages.sh](../../bin/update-packages.sh) que sincroniza pacman y garantiza el baseline completo leyendo `packages-baseline.txt` (fuente única), usando la caché portable.
+*   [x] **Verificador de Aceptación Automático:** [smoke.sh](../../bin/smoke.sh) automatiza las Pruebas A/B/C/E-local/F-check de la Fase 9 dentro del terminal portable.
 *   **Estado y siguientes pasos:** el detalle vivo de mejoras implementadas y pendientes se centraliza en [mejoras-y-problemas.md](mejoras-y-problemas.md).
 
 

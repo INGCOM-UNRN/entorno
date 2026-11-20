@@ -16,7 +16,7 @@ LAUNCHER_DIR="$PORTABLE_ROOT/launcher"
 mkdir -p "$LAUNCHER_DIR"
 
 # Descargar archivos si no existen localmente (caso de instalación standalone sin Git)
-REPO_OWNER="INGCOM-UNRN-P1"
+REPO_OWNER="INGCOM-UNRN"
 REPO_NAME="entorno"
 BRANCH="main"
 RAW_URL="https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$BRANCH"

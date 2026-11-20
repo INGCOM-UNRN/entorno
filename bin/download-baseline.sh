@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# download-baseline.sh - Descarga el baseline de paquetes de pacman a la caché local portable
+# download-baseline.sh - Descarga a la caché local portable los paquetes de pacman del
+# módulo de compiladores (para preparar instalaciones sin internet)
 # Diseñado para ejecutarse dentro del entorno MSYS2 (UCRT64)
 
 set -e
@@ -21,13 +22,15 @@ echo "Sincronizando base de datos de paquetes..."
 pacman -Sy
 
 echo -e "\nDescargando paquetes del baseline y sus dependencias..."
-# Fuente única de paquetes: packages-baseline.txt en la raíz del entorno
-PKG_FILE="${PORTABLE_ROOT}/packages-baseline.txt"
-if [ ! -f "$PKG_FILE" ]; then
-    echo -e "\e[31m[ERROR] No se encontró packages-baseline.txt en ${PORTABLE_ROOT}.\e[0m"
-    exit 1
-fi
-mapfile -t packages < <(sed 's/#.*$//' "$PKG_FILE" | tr -d ' \t\r' | grep -v '^$')
+# Fuente única de paquetes: packages-compiladores.txt (la base no usa pacman: git es MinGit)
+PKG_FILES=("${PORTABLE_ROOT}/config/packages-compiladores.txt")
+for PKG_FILE in "${PKG_FILES[@]}"; do
+    if [ ! -f "$PKG_FILE" ]; then
+        echo -e "\e[31m[ERROR] No se encontró $(basename "$PKG_FILE") en ${PORTABLE_ROOT}.\e[0m"
+        exit 1
+    fi
+done
+mapfile -t packages < <(sed 's/#.*$//' "${PKG_FILES[@]}" | tr -d ' \t\r' | grep -v '^$')
 
 pkg_string="${packages[*]}"
 

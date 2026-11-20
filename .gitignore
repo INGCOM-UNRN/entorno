@@ -1,5 +1,7 @@
 # Complete indicator files
 .msys_complete
+.compiladores_complete
+.imagen
 .vscode_complete
 .gh_complete
 .wezterm_complete
@@ -11,6 +13,14 @@ wezterm/
 wezterm.lua
 
 msys64/
+
+# Python de la base (uv) y binarios descargados por setup.ps1
+/python/
+/mingit/
+/bin/uv.exe
+/bin/uvx.exe
+/bin/uvw.exe
+/bin/.uv_version
 
 # Local environment configuration
 .env

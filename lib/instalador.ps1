@@ -1,0 +1,481 @@
+# lib/instalador.ps1 - Funciones compartidas por el instalador base (setup.ps1) y los
+# modulos opcionales (modulos/compiladores.ps1, modulos/vscode.ps1).
+#
+# Se carga con dot-sourcing (". lib\instalador.ps1") para que las funciones vean las
+# variables del script que las usa: $descargasDir (cache de descargas) y
+# $pinnedVersions (manifiesto versions.json, lo carga Read-VersionManifest).
+# Compatible con Windows PowerShell 5.1 y PowerShell 7 (pwsh).
+
+# Codificacion UTF-8 sin BOM para los archivos que generan los instaladores
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+# Manifiesto de versiones por cuatrimestre (versions.json): valores null = ultima disponible.
+# Por defecto se respetan los pines para reproducibilidad; -Latest los ignora (devuelve $null).
+function Read-VersionManifest {
+    param(
+        [string]$Path,
+        [switch]$Latest
+    )
+    if ($Latest -or -not (Test-Path $Path)) { return $null }
+    try {
+        $manifest = Get-Content $Path -Raw | ConvertFrom-Json
+        if ($manifest.canal) {
+            Write-Host "Canal de versiones configurado: $($manifest.canal)" -ForegroundColor DarkGray
+        }
+        return $manifest
+    } catch {
+        Write-Warning "versions.json invalido ($_). Se usaran las ultimas versiones disponibles."
+        return $null
+    }
+}
+
+function Get-Pinned([string]$Key) {
+    if ($null -eq $script:pinnedVersions) { return $null }
+    $prop = $script:pinnedVersions.PSObject.Properties[$Key]
+    if ($null -eq $prop) { return $null }
+    if ($prop.Value -is [string] -and $prop.Value.Trim()) { return $prop.Value.Trim() }
+    return $null
+}
+
+# Cache de respuestas de la API de GitHub: en aulas con NAT compartido el limite
+# de 60 consultas por hora por IP se agota rapido. Guarda cada respuesta en
+# descargas/api_cache con vencimiento (24 horas) y, si la API no responde o
+# rechaza por limite de peticiones, reutiliza la ultima copia aunque este vencida.
+function Get-GitHubApiCached {
+    param([string]$Url)
+    $cacheDir = Join-Path $descargasDir "api_cache"
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Url))
+    } finally {
+        $sha.Dispose()
+    }
+    $hash = [System.BitConverter]::ToString($hashBytes).Replace("-", "").Substring(0, 16).ToLower()
+    $cacheFile = Join-Path $cacheDir "$hash.json"
+    $stampFile = Join-Path $cacheDir "$hash.stamp"
+    $ttlHours = 24
+
+    $cachedJson = $null
+    $cacheFresh = $false
+    if (Test-Path $cacheFile) {
+        $cachedJson = Get-Content $cacheFile -Raw
+        if (Test-Path $stampFile) {
+            try {
+                $stampUtc = [datetimeoffset]::Parse((Get-Content $stampFile -Raw).Trim()).UtcDateTime
+                if (((Get-Date).ToUniversalTime() - $stampUtc).TotalHours -lt $ttlHours) { $cacheFresh = $true }
+            } catch { }
+        }
+        if ($cacheFresh) {
+            Write-Host "Respuesta de la API de GitHub servida desde la cache local." -ForegroundColor DarkGray
+            try { return ($cachedJson | ConvertFrom-Json) } catch { }
+        }
+    }
+
+    try {
+        $response = Invoke-RestMethod -Uri $Url -UseBasicParsing -TimeoutSec 10
+        New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
+        Set-Content -Path $cacheFile -Value ($response | ConvertTo-Json -Depth 20)
+        Set-Content -Path $stampFile -Value (Get-Date).ToUniversalTime().ToString("o")
+        return $response
+    } catch {
+        if (-not [string]::IsNullOrEmpty($cachedJson)) {
+            Write-Warning "Consulta a la API de GitHub fallida; se usa la cache local (aunque vencida)."
+            try { return ($cachedJson | ConvertFrom-Json) } catch { }
+        }
+        throw
+    }
+}
+
+# Descarga uniforme con reintentos para archivos grandes (MSYS2, VS Code, gh, WezTerm).
+# Un unico punto para ajustar cantidad de intentos y espera entre intentos.
+function Invoke-DownloadWithRetry {
+    param(
+        [string]$Url,
+        [string]$OutFile,
+        [int]$MaxAttempts = 3,
+        [int]$DelaySeconds = 2
+    )
+    $attempts = 0
+    while ($true) {
+        $attempts++
+        try {
+            Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -ErrorAction Stop
+            return
+        } catch {
+            if ($attempts -ge $MaxAttempts) { throw }
+            Start-Sleep -Seconds $DelaySeconds
+        }
+    }
+}
+
+# Integridad de los artefactos de la catedra (Ola 11): compara el archivo con la linea de su
+# nombre en el SHA256SUMS publicado junto a la URL (el mismo release), o con -Expected si se da
+# (versions.json: "<clave>_sha256"). Lanza una excepcion si no coincide o no se puede comprobar:
+# quien llama cancela la instalacion en vez de ejecutar algo descargado sin verificar.
+function Assert-ReleaseSha256 {
+    param(
+        [string]$Path,
+        [string]$Url,
+        [string]$Expected = ""
+    )
+    $name = $Url.Substring($Url.LastIndexOf('/') + 1)
+    if (-not $Expected) {
+        $sumsUrl = $Url.Substring(0, $Url.LastIndexOf('/')) + "/SHA256SUMS"
+        $sumsPath = "$Path.SHA256SUMS"
+        try {
+            Invoke-DownloadWithRetry -Url $sumsUrl -OutFile $sumsPath
+        } catch {
+            throw "No se pudo descargar $sumsUrl para verificar $name."
+        }
+        foreach ($line in (Get-Content -Path $sumsPath)) {
+            $parts = $line.Trim() -split '\s+', 2
+            if ($parts.Count -eq 2 -and ($parts[1] -eq $name -or $parts[1] -eq "*$name")) {
+                $Expected = $parts[0]
+                break
+            }
+        }
+        Remove-Item -Path $sumsPath -Force -ErrorAction SilentlyContinue
+        if (-not $Expected) { throw "El SHA256SUMS del release no trae la suma de $name." }
+    }
+    $actual = (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLower()
+    if ($actual -ne $Expected.Trim().ToLower()) {
+        throw "La suma SHA-256 de $name no coincide con la del release (esperada: $($Expected.Trim().ToLower()); descargada: $actual)."
+    }
+}
+
+# Espejo regional de pacman: mide latencia contra candidatos (prioridad sudamericana
+# para Red UNRN) y configura el mas rapido como primera opcion de cada mirrorlist.
+# Devuelve el espejo elegido o $null si ninguno respondio (no toca archivos en ese caso).
+function Select-PacmanMirrorByLatency {
+    param(
+        [string]$MsysDir,
+        [int]$TimeoutSec = 4
+    )
+    $mirrorCandidates = @(
+        "https://mirror.ufro.cl/msys2",
+        "https://repo.msys2.org",
+        "https://mirrors.utexas.edu/msys2",
+        "https://mirrors.ocf.berkeley.edu/msys2"
+    )
+    try {
+        Write-Host "Midiendo latencia de espejos de pacman..." -ForegroundColor Cyan
+        $bestMirror = $null
+        $bestMs = [double]::MaxValue
+        foreach ($candidate in $mirrorCandidates) {
+            try {
+                $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+                Invoke-WebRequest -Uri "$candidate/distrib/" -Method Head -UseBasicParsing -TimeoutSec $TimeoutSec | Out-Null
+                $stopwatch.Stop()
+                Write-Host ("  {0} -> {1} ms" -f $candidate, $stopwatch.ElapsedMilliseconds) -ForegroundColor DarkGray
+                if ($stopwatch.ElapsedMilliseconds -lt $bestMs) {
+                    $bestMs = $stopwatch.ElapsedMilliseconds
+                    $bestMirror = $candidate
+                }
+            } catch {
+                Write-Host "  $candidate -> sin respuesta" -ForegroundColor DarkGray
+            }
+        }
+        if (-not $bestMirror) {
+            Write-Warning "Ningun espejo de pacman respondio; se conservan los servidores por defecto."
+            return $null
+        }
+        Write-Host "Espejo pacman seleccionado: $bestMirror (${bestMs} ms)" -ForegroundColor Green
+        $markerLine = "# Espejo seleccionado automaticamente por setup.ps1 (latencia)"
+        $repoSubPaths = @{
+            "mirrorlist.msys"    = "/msys/x86_64/"
+            "mirrorlist.ucrt64"  = "/mingw/ucrt64/"
+            "mirrorlist.mingw64" = "/mingw/mingw64/"
+            "mirrorlist.clang64" = "/mingw/clang64/"
+        }
+        foreach ($mirrorListName in $repoSubPaths.Keys) {
+            $mirrorListFile = Join-Path (Join-Path $MsysDir "etc\pacman.d") $mirrorListName
+            if (-not (Test-Path $mirrorListFile)) { continue }
+            $existingLines = @(Get-Content $mirrorListFile)
+            $serverLine = "Server = $($bestMirror)$($repoSubPaths[$mirrorListName])"
+            $kept = @($existingLines | Where-Object { $_ -ne $serverLine -and $_ -notmatch 'Espejo seleccionado automaticamente' })
+            Set-Content -Path $mirrorListFile -Value (@($markerLine, $serverLine) + $kept)
+        }
+        return $bestMirror
+    } catch {
+        Write-Warning "Fallo la seleccion de espejo de pacman; se conservan los servidores por defecto."
+        return $null
+    }
+}
+
+# Funcion para extraer el nombre de archivo de una URL o usar un fallback
+function Get-FileNameFromUrl {
+    param(
+        [string]$Url,
+        [string]$DefaultName
+    )
+    if ([string]::IsNullOrEmpty($Url)) { return $DefaultName }
+    $leaf = $Url.Split('/')[-1]
+    if ($leaf -match "\?") {
+        $leaf = $leaf.Split('?')[0]
+    }
+    if ($leaf -match "\.(zip|exe|tar|gz|sfx)$") {
+        return $leaf
+    }
+    return $DefaultName
+}
+
+# Funcion para ejecutar comandos de pacman con reintentos
+function Invoke-PacmanWithRetry {
+    param(
+        [string]$BashPath,
+        [string]$Arguments,
+        [int]$MaxAttempts = 3,
+        [int]$DelaySeconds = 5
+    )
+    
+    $attempts = 0
+    $success = $false
+    
+    while (-not $success -and $attempts -lt $MaxAttempts) {
+        $attempts++
+        if ($attempts -gt 1) {
+            Write-Host "Reintentando comando pacman (Intento $attempts de $MaxAttempts) en $DelaySeconds segundos..." -ForegroundColor Yellow
+            Start-Sleep -Seconds $DelaySeconds
+        }
+        
+        # Ejecutar pacman con los argumentos correspondientes
+        & $BashPath --login -c "pacman $Arguments"
+        
+        if ($LASTEXITCODE -eq 0) {
+            $success = $true
+        } else {
+            Write-Warning "El comando 'pacman $Arguments' fallo con codigo de salida: $LASTEXITCODE"
+        }
+    }
+    
+    if (-not $success) {
+        throw "No se pudo completar la instalacion o actualizacion de paquetes con pacman tras $MaxAttempts intentos."
+    }
+}
+
+# Iniciar log de instalacion
+$logPath = Join-Path $portableRoot "install.log"
+
+# Lista de paquetes de pacman desde un archivo de texto (un paquete por linea, admite
+# comentarios con #). Fuente unica compartida con los scripts de bin/.
+function Get-PackageList {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) {
+        throw "No se encontro la lista de paquetes '$Path'."
+    }
+    return @(Get-Content -Path $Path | ForEach-Object { ($_ -split '#')[0].Trim() } | Where-Object { $_ })
+}
+
+# Hay una persona para responder preguntas? Sin consola interactiva (CI, tareas programadas,
+# entrada redirigida) Read-Host quedaria bloqueado indefinidamente.
+function Test-InteractiveConsole {
+    param([switch]$Yes)
+    if ($Yes -or $env:CI) { return $false }
+    try {
+        if ([Console]::IsInputRedirected) { return $false }
+    } catch { }
+    return [Environment]::UserInteractive
+}
+
+# Espacio libre en la unidad que contiene $Path. Lanza una excepcion si no alcanza;
+# si no se puede medir (unidades de red, rutas UNC), solo advierte.
+function Assert-FreeSpace {
+    param(
+        [string]$Path,
+        [double]$RequiredGB,
+        [string]$Context = "la instalacion"
+    )
+    try {
+        $driveName = ($Path.Substring(0, 2)).TrimEnd('\')
+        $drive = Get-PSDrive -Name $driveName[0] -ErrorAction Stop
+        if ($drive.Free -lt ($RequiredGB * 1GB)) {
+            $freeGb = [math]::Round($drive.Free / 1GB, 2)
+            throw "Espacio insuficiente en ${driveName}: hay ${freeGb} GB libres y $Context necesita al menos $RequiredGB GB."
+        }
+        Write-Host "[OK] Espacio en disco suficiente para $Context ($([math]::Round($drive.Free / 1GB, 1)) GB libres)." -ForegroundColor DarkGray
+    } catch [System.Management.Automation.PSInvalidOperationException] {
+        Write-Warning "No se pudo verificar el espacio en disco para '$Path'. Continuando..."
+    } catch [System.Management.Automation.DriveNotFoundException] {
+        Write-Warning "No se pudo verificar el espacio en disco para '$Path'. Continuando..."
+    }
+}
+
+# Ejecuta un programa externo descartando su salida y devuelve el codigo de salida.
+# En Windows PowerShell 5.1, redirigir el stderr de un programa nativo con
+# $ErrorActionPreference = "Stop" convierte cualquier linea en un error que corta el script;
+# aca la preferencia es local a la funcion.
+function Invoke-NativeQuiet {
+    param(
+        [string]$FilePath,
+        [string[]]$ArgumentList = @()
+    )
+    $ErrorActionPreference = "Continue"
+    try {
+        & $FilePath @ArgumentList *> $null
+        return $LASTEXITCODE
+    } catch {
+        return 1
+    }
+}
+
+# Espera una tecla antes de terminar, para que la ventana no desaparezca con el resultado
+# (con exito o, sobre todo, con un error) cuando el script se abrio con doble clic, con
+# "Ejecutar con PowerShell" o desde un .bat. Sin consola interactiva (-Yes, CI, entrada
+# redirigida) no espera: los laboratorios y el CI siguen siendo desatendidos.
+function Wait-AntesDeCerrar {
+    param(
+        [switch]$ConError,
+        [switch]$Yes,
+        [string]$Mensaje = ""
+    )
+    if ($ConError) {
+        Write-Host ""
+        Write-Host "Termino con errores: revisa los mensajes de arriba." -ForegroundColor Red
+    }
+    if ($Mensaje) { Write-Host $Mensaje -ForegroundColor Yellow }
+    if ($Yes -or $env:CI) { return }
+    try {
+        if ([Console]::IsInputRedirected) { return }
+    } catch {
+        return
+    }
+    if (-not [Environment]::UserInteractive) { return }
+    Write-Host ""
+    $null = Read-Host "Presiona Enter para terminar"
+}
+
+# ------------------------------------------------------------------
+# Imagenes precompiladas (releases del repositorio)
+# ------------------------------------------------------------------
+# El workflow release-imagenes.yml publica en cada release:
+#   entorno-base-windows-x64.zip          scripts + componentes de la base ya instalados
+#   entorno-compiladores-windows-x64.zip  capa de msys64 con el modulo de compiladores
+#   SHA256SUMS
+# setup.ps1 usa la imagen base en una instalacion nueva (una descarga en lugar de una por
+# componente) y modulos\compiladores.ps1 usa la capa si la base vino de la misma imagen.
+$RepoImagenes = "INGCOM-UNRN/entorno"
+$NombreImagenBase = "entorno-base-windows-x64.zip"
+$NombreImagenCompiladores = "entorno-compiladores-windows-x64.zip"
+# Lo que la imagen base aporta a una instalacion (fuente unica para el armado y el uso).
+# No incluye .install_complete ni .msys_complete: setup.ps1 completa la configuracion de la
+# consola y del HOME portable en la maquina del usuario.
+$ComponentesImagenBase = @(
+    "msys64", "mingit", "python", "wezterm",
+    "bin\uv.exe", "bin\uvx.exe", "bin\uvw.exe", "bin\.uv_version",
+    "bin\gh.exe", "bin\.gh_version", "bin\jonesy.exe", "bin\.jonesy_version", "bin\ripley.pyz",
+    ".gh_complete", ".jonesy_complete", ".wezterm_complete"
+)
+
+# Archivos que la capa de compiladores borra (los que pacman elimino al armarla: versiones
+# viejas de paquetes de la base y sus registros en var/lib/pacman/local). Viaja dentro de la
+# capa; la aplica modulos\compiladores.ps1 o, si la capa se descomprimio a mano, doctor --fix.
+$ListaEliminadosCapa = "msys64/var/lib/p1-entorno/capa-compiladores-eliminados.txt"
+
+# Aplica la lista de eliminados de la capa (si esta) y la borra. Solo acepta rutas dentro de
+# msys64 y quita las carpetas que quedan vacias (un registro de pacman sin su 'desc' es un
+# error para pacman). Devuelve la cantidad de archivos borrados.
+function Invoke-EliminadosCapa {
+    param([string]$PortableRoot)
+    $lista = $PortableRoot
+    foreach ($parte in $ListaEliminadosCapa.Split('/')) { $lista = Join-Path $lista $parte }
+    if (-not (Test-Path -LiteralPath $lista)) { return 0 }
+    $borrados = 0
+    foreach ($linea in @(Get-Content -LiteralPath $lista)) {
+        $relativa = $linea.Trim()
+        if (-not $relativa.StartsWith("msys64/") -or $relativa.Contains("..")) { continue }
+        $ruta = $PortableRoot
+        foreach ($parte in $relativa.Split('/')) { $ruta = Join-Path $ruta $parte }
+        if (Test-Path -LiteralPath $ruta -PathType Leaf) {
+            Remove-Item -LiteralPath $ruta -Force
+            $borrados++
+            $padre = Split-Path -Parent $ruta
+            if ((Test-Path -LiteralPath $padre) -and -not (Get-ChildItem -LiteralPath $padre -Force | Select-Object -First 1)) {
+                Remove-Item -LiteralPath $padre -Force
+            }
+        }
+    }
+    # Aplicada una vez: si quedara, un doctor --fix posterior podria borrar archivos que
+    # pacman volvio a instalar
+    Remove-Item -LiteralPath $lista -Force
+    return $borrados
+}
+
+# Release del que salen las imagenes: el indicado (tag) o el ultimo publicado.
+# Devuelve el tag y un diccionario nombre de archivo -> URL de descarga.
+function Get-ImagenRelease {
+    param([string]$Tag = "")
+    $url = if ($Tag) { "https://api.github.com/repos/$RepoImagenes/releases/tags/$Tag" } else { "https://api.github.com/repos/$RepoImagenes/releases/latest" }
+    $release = Get-GitHubApiCached -Url $url
+    if (-not $release -or -not $release.tag_name) { throw "La API de GitHub no devolvio el release." }
+    $assets = @{}
+    foreach ($asset in @($release.assets)) { $assets[$asset.name] = $asset.browser_download_url }
+    return [pscustomobject]@{ Tag = $release.tag_name; Assets = $assets }
+}
+
+# Extrae un .zip rapido con tar.exe (bsdtar, incluido desde Windows 10 1803) y, si no esta
+# o falla, con Expand-Archive.
+function Expand-ArchivoRapido {
+    param([string]$Path, [string]$Destino)
+    New-Item -ItemType Directory -Force -Path $Destino | Out-Null
+    $tarExe = if ($env:SystemRoot) { Join-Path $env:SystemRoot "System32\tar.exe" } else { "" }
+    if ($tarExe -and (Test-Path $tarExe)) {
+        & $tarExe -xf $Path -C $Destino
+        if ($LASTEXITCODE -eq 0) { return }
+        Write-Warning "tar.exe no pudo extraer $Path (codigo $LASTEXITCODE). Se reintenta con Expand-Archive."
+    }
+    Expand-Archive -Path $Path -DestinationPath $Destino -Force
+}
+
+# Mueve una carpeta dentro de otra fusionando el contenido (reemplaza archivos existentes).
+function Move-Fusionando {
+    param([string]$Origen, [string]$Destino)
+    if (-not (Test-Path $Destino)) {
+        $padre = Split-Path -Parent $Destino
+        if ($padre -and -not (Test-Path $padre)) { New-Item -ItemType Directory -Force -Path $padre | Out-Null }
+        Move-Item -Path $Origen -Destination $Destino
+        return
+    }
+    & robocopy $Origen $Destino /E /MOVE /NFL /NDL /NJH /NJS /NP /R:2 /W:1 | Out-Null
+    # robocopy: 0-7 es exito (con o sin archivos copiados); 8 o mas, error
+    if ($LASTEXITCODE -ge 8) { throw "robocopy no pudo fusionar $Origen en $Destino (codigo $LASTEXITCODE)." }
+    $global:LASTEXITCODE = 0
+}
+
+# Descarga una imagen de un release, la verifica contra el SHA256SUMS del mismo release, la
+# extrae aparte y mueve al entorno solo los componentes indicados. Un fallo antes de mover
+# deja el entorno como estaba.
+function Install-ImagenRelease {
+    param(
+        [string]$Url,
+        [string]$PortableRoot,
+        [string]$DescargasDir,
+        [string[]]$Componentes
+    )
+    $nombre = $Url.Substring($Url.LastIndexOf('/') + 1)
+    $zipPath = Join-Path $DescargasDir $nombre
+    $extractDir = Join-Path $DescargasDir "imagen_extract"
+    try {
+        Write-Host "Descargando $nombre..." -ForegroundColor Cyan
+        Invoke-DownloadWithRetry -Url $Url -OutFile $zipPath
+        Assert-ReleaseSha256 -Path $zipPath -Url $Url
+        Write-Host "Suma SHA-256 de $nombre verificada contra el release." -ForegroundColor Green
+        if (Test-Path $extractDir) { Remove-Item -Path $extractDir -Recurse -Force }
+        Write-Host "Extrayendo $nombre..." -ForegroundColor Cyan
+        Expand-ArchivoRapido -Path $zipPath -Destino $extractDir
+        foreach ($componente in $Componentes) {
+            $origen = Join-Path $extractDir $componente
+            if (-not (Test-Path $origen)) { continue }
+            $destino = Join-Path $PortableRoot $componente
+            if (Test-Path $origen -PathType Container) {
+                Move-Fusionando -Origen $origen -Destino $destino
+            } else {
+                $padre = Split-Path -Parent $destino
+                if (-not (Test-Path $padre)) { New-Item -ItemType Directory -Force -Path $padre | Out-Null }
+                Move-Item -Path $origen -Destination $destino -Force
+            }
+        }
+    } finally {
+        if (Test-Path $extractDir) { Remove-Item -Path $extractDir -Recurse -Force -ErrorAction SilentlyContinue }
+        if (Test-Path $zipPath) { Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue }
+    }
+}

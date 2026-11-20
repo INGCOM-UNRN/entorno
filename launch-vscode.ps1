@@ -5,7 +5,7 @@ $ErrorActionPreference = "Stop"
 $portableRoot = $PSScriptRoot
 
 # Logica compartida con launch.ps1 (advertencia de ruta, .env, sesion)
-Import-Module (Join-Path $portableRoot "env.common.psm1") -Force
+Import-Module (Join-Path $portableRoot "lib\env.common.psm1") -Force
 
 # Advertencia temprana ante espacios, caracteres no ASCII o carpetas sincronizadas
 $infoRuta = Test-ConflictivePath -Path $portableRoot
@@ -23,7 +23,7 @@ $codeExe = Join-Path $vscodeDir "Code.exe"
 # Validar existencia de VS Code
 if (-not (Test-Path $codeExe)) {
     Add-Type -AssemblyName System.Windows.Forms
-    [System.Windows.Forms.MessageBox]::Show("No se encuentra la instalacion de VS Code en la ruta:`n$vscodeDir`n`nPor favor, ejecuta setup.ps1 primero para instalar el entorno completo.", "Error - Lanzador Portable", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+    [System.Windows.Forms.MessageBox]::Show("No se encuentra la instalacion de VS Code en la ruta:`n$vscodeDir`n`nVS Code es un modulo opcional: instalalo con instalar-vscode.bat (en la carpeta del entorno).", "Error - Lanzador Portable", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
     return
 }
 

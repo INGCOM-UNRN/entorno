@@ -1,0 +1,5 @@
+# Dependencias Python de la instalación base del entorno portable (Windows).
+# setup.ps1 las instala con uv en el Python de la base (python/).
+# Son las que necesitan las herramientas de la cátedra distribuidas como zipapp (ripley.pyz).
+typer
+rich

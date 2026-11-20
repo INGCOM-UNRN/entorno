@@ -53,5 +53,5 @@ jobs:
           P1_TEST_RED: "1"
         run: tests/test_instalador_unix.sh
 
-      - name: Variante personal (setup-personal.sh / desinstalar-personal.sh)
+      - name: Variante personal (unix/setup-personal.sh / unix/desinstalar-personal.sh)
         run: tests/test_personal_unix.sh

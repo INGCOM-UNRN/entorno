@@ -13,7 +13,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$portableRoot = $PSScriptRoot
+# Vive en herramientas\: la raiz del entorno es la carpeta padre
+$portableRoot = Split-Path -Parent $PSScriptRoot
 $msysDir = Join-Path $portableRoot "msys64"
 $vscodeDir = Join-Path $portableRoot "vscode"
 $outputZip = Join-Path $portableRoot "portable-env-offline.zip"
@@ -22,13 +23,19 @@ Write-Host "=== Empaquetador de Entorno Portable (Offline) ===" -ForegroundColor
 Write-Host "Directorio raiz: $portableRoot"
 
 # 1. Validar que el entorno este inicializado y completo
+# Solo la base es obligatoria: el paquete incluye los modulos opcionales (compiladores,
+# VS Code) que esten instalados en esta maquina.
 $isMsysReady = Test-Path (Join-Path $msysDir "usr\bin\bash.exe")
-$isVscodeReady = Test-Path (Join-Path $vscodeDir "Code.exe")
+$isBaseReady = Test-Path (Join-Path $portableRoot ".install_complete")
 
-if (-not $isMsysReady -or -not $isVscodeReady) {
+if (-not $isMsysReady -or -not $isBaseReady) {
     Write-Error "El entorno no esta inicializado completamente. Ejecuta primero 'powershell -File setup.ps1' para aprovisionar las herramientas."
     return
 }
+$modulosEnPaquete = @()
+if (Test-Path (Join-Path $portableRoot ".compiladores_complete")) { $modulosEnPaquete += "compiladores" }
+if (Test-Path (Join-Path $vscodeDir "Code.exe")) { $modulosEnPaquete += "vscode" }
+Write-Host ("Modulos opcionales incluidos: {0}" -f $(if ($modulosEnPaquete) { $modulosEnPaquete -join ", " } else { "ninguno (solo la base)" }))
 
 # 2. Limpieza previa del entorno para reducir el tamano del paquete
 Write-Host "`nLimpiando archivos innecesarios para optimizar el tamano..." -ForegroundColor Cyan

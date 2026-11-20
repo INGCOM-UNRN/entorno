@@ -78,4 +78,4 @@ fi
 # Recordatorio de higiene para computadoras compartidas
 echo ""
 echo "Tip: si usás este entorno en una máquina compartida, antes de retirarte ejecutá"
-echo "la limpieza de seguridad (clean-shared-host.ps1 en Windows) para borrar tus datos."
+echo "la limpieza de seguridad (herramientas/clean-shared-host.ps1 en Windows) para borrar tus datos."

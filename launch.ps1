@@ -5,7 +5,7 @@ $ErrorActionPreference = "Stop"
 $portableRoot = $PSScriptRoot
 
 # Logica compartida con launch-vscode.ps1 (advertencia de ruta, .env, sesion)
-Import-Module (Join-Path $portableRoot "env.common.psm1") -Force
+Import-Module (Join-Path $portableRoot "lib\env.common.psm1") -Force
 
 # Advertencia temprana ante espacios, caracteres no ASCII o carpetas sincronizadas
 $infoRuta = Test-ConflictivePath -Path $portableRoot
@@ -69,23 +69,29 @@ $env:WEZTERM_CONFIG_FILE = $wezConfigPath
 
 # Asegurar que wezterm.lua exista, generandolo desde la plantilla canonica unica
 if (-not (Test-Path $wezConfigPath)) {
-    $wezTemplateFile = Join-Path $portableRoot "wezterm.lua.template"
+    $wezTemplateFile = Join-Path $portableRoot "config\wezterm.lua.template"
     if (Test-Path $wezTemplateFile) {
         $wezConfigContent = Get-Content $wezTemplateFile -Raw
         $wezConfigContent = $wezConfigContent.Replace('@HOME_DIR_NAME@', $homeDirName)
         [System.IO.File]::WriteAllText($wezConfigPath, $wezConfigContent, $utf8NoBom)
         Write-Host "[INFO] wezterm.lua generado desde la plantilla canonica." -ForegroundColor Cyan
     } else {
-        Write-Warning "Falta wezterm.lua.template: no se pudo generar la configuracion de WezTerm."
+        Write-Warning "Falta config\wezterm.lua.template: no se pudo generar la configuracion de WezTerm."
     }
 } else {
     # Correccion minima para instalaciones historicas con MSYSTEM o rutas erroneas
     $content = [System.IO.File]::ReadAllText($wezConfigPath, [System.Text.Encoding]::UTF8)
     $fixed = $content -replace 'MSYSTEM\s*=\s*"(CLANG|MINGW)64"', 'MSYSTEM = "UCRT64"'
     $fixed = $fixed -replace 'msys64/(clang|mingw)64/', 'msys64/ucrt64/'
+    # No anteponer UCRT64 al PATH heredado: le ganaba al Python de la base (instalaciones anteriores)
+    $fixed = $fixed.Replace('portable_root .. "bin;" .. portable_root .. "msys64/ucrt64/bin;" .. portable_root .. "msys64/usr/bin;" .. path_env', 'portable_root .. "bin;" .. path_env')
+    # Que la ventana no desaparezca si bash termina con error (instalaciones anteriores)
+    if ($fixed -notmatch 'exit_behavior' -and $fixed -match '(?m)^config\.default_prog.*$') {
+        $fixed = $fixed -replace '(?m)^(config\.default_prog.*)$', ('$1' + "`nconfig.exit_behavior = `"CloseOnCleanExit`"")
+    }
     if ($fixed -ne $content) {
         [System.IO.File]::WriteAllText($wezConfigPath, $fixed, $utf8NoBom)
-        Write-Host "[INFO] wezterm.lua normalizado a UCRT64." -ForegroundColor DarkGray
+        Write-Host "[INFO] wezterm.lua de una instalacion anterior actualizado." -ForegroundColor DarkGray
     }
 }
 
@@ -115,3 +121,7 @@ if (Test-Path $wezExe) {
     }
     & $bashPath --login -i
 }
+
+# Exito explicito: el codigo de salida de bash no es un error del lanzador (launch.bat pausa
+# solo si este script falla).
+exit 0

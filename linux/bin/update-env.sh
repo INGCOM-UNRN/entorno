@@ -13,7 +13,7 @@ if [ -z "${PORTABLE_ROOT:-}" ]; then
     exit 1
 fi
 
-REPO_OWNER="INGCOM-UNRN-P1"
+REPO_OWNER="INGCOM-UNRN"
 REPO_NAME="entorno"
 # Canal de actualización configurable vía .env (ej: CHANNEL=estable-2026c1)
 BRANCH="main"
@@ -51,9 +51,10 @@ if [ "$updated" -eq 0 ] && [ ! -d "$PORTABLE_ROOT/.git" ]; then
     [ -d "$EXTRACTED_DIR" ] || { echo -e "\e[31m[ERROR] Snapshot inesperado.\e[0m"; exit 1; }
 
     cp -r "$EXTRACTED_DIR/linux/." "$PORTABLE_ROOT/linux/"
-    for f in README.md plan.md AGENTS.md packages-baseline.txt VERSION; do
+    for f in README.md AGENTS.md CHANGELOG.md VERSION; do
         [ -f "$EXTRACTED_DIR/$f" ] && cp -f "$EXTRACTED_DIR/$f" "$PORTABLE_ROOT/"
     done
+    [ -d "$EXTRACTED_DIR/docs" ] && mkdir -p "$PORTABLE_ROOT/docs" && cp -r "$EXTRACTED_DIR/docs/." "$PORTABLE_ROOT/docs/"
     chmod +x "$PORTABLE_ROOT"/linux/bin/* "$PORTABLE_ROOT"/linux/*.sh 2>/dev/null || true
     updated=1
     echo -e "\e[32m[OK] Scripts de linux/ actualizados a la versión del canal.\e[0m"

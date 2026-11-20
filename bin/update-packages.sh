@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # update-packages.sh - Actualiza los paquetes del entorno portable de forma unificada.
 # Ejecuta la sincronización/actualización de pacman y garantiza que todos los paquetes
-# obligatorios (fuente única: packages-baseline.txt) estén instalados, usando la caché
+# del módulo opcional de compiladores (packages-compiladores.txt) estén instalados, si
+# el módulo está instalado (la base no usa pacman: git es MinGit). Usa la caché
 # local portátil como almacenamiento de descargas.
 #
 # Diseñado para ejecutarse dentro del terminal portable de Windows (MSYS2/UCRT64).
@@ -16,23 +17,32 @@ if [ -z "${PORTABLE_ROOT:-}" ]; then
     exit 1
 fi
 
-PKG_FILE="${PORTABLE_ROOT}/packages-baseline.txt"
 CACHE_DIR="${PORTABLE_ROOT}/descargas/pacman_cache"
-
-if [ ! -f "$PKG_FILE" ]; then
-    echo -e "${RED}[ERROR] No se encontró packages-baseline.txt en ${PORTABLE_ROOT}.${RESET}"
-    exit 1
+PKG_FILES=()
+if [ -f "${PORTABLE_ROOT}/.compiladores_complete" ]; then
+    PKG_FILES+=("${PORTABLE_ROOT}/config/packages-compiladores.txt")
 fi
 
-mapfile -t packages < <(sed 's/#.*$//' "$PKG_FILE" | tr -d ' \t\r' | grep -v '^$')
-pkg_string="${packages[*]}"
+for PKG_FILE in "${PKG_FILES[@]+"${PKG_FILES[@]}"}"; do
+    if [ ! -f "$PKG_FILE" ]; then
+        echo -e "${RED}[ERROR] No se encontró $(basename "$PKG_FILE") en ${PORTABLE_ROOT}.${RESET}"
+        exit 1
+    fi
+done
+
+packages=()
+if [ "${#PKG_FILES[@]}" -gt 0 ]; then
+    mapfile -t packages < <(sed 's/#.*$//' "${PKG_FILES[@]}" | tr -d ' \t\r' | grep -v '^$')
+fi
+pkg_string="${packages[*]-}"
 
 mkdir -p "$CACHE_DIR"
 
 echo -e "${CYAN}======================================================================${RESET}"
 echo -e "${CYAN}     Actualización Unificada de Paquetes del Entorno Portable${RESET}"
 echo -e "${CYAN}======================================================================${RESET}"
-echo "Paquetes obligatorios: ${#packages[@]} (definidos en packages-baseline.txt)"
+echo "Paquetes del módulo de compiladores: ${#packages[@]}"
+[ -f "${PORTABLE_ROOT}/.compiladores_complete" ] || echo "Módulo de compiladores no instalado: se omite (instalalo con: instalar compiladores)."
 echo ""
 
 echo -e "${CYAN}-> Sincronizando base de datos de pacman...${RESET}"
@@ -41,13 +51,15 @@ pacman -Sy --cachedir "$CACHE_DIR" --noconfirm
 echo ""
 echo -e "${CYAN}-> Actualizando el sistema base...${RESET}"
 pacman -Su --cachedir "$CACHE_DIR" --noconfirm || {
-    echo -e "${YELLOW}[AVISO] La actualización del sistema reportó errores; se continúa con el baseline.${RESET}"
+    echo -e "${YELLOW}[AVISO] La actualización del sistema reportó errores; se continúa con los paquetes del entorno.${RESET}"
 }
 
 echo ""
-echo -e "${CYAN}-> Instalando/verificando paquetes obligatorios...${RESET}"
-pacman -S --needed --cachedir "$CACHE_DIR" --noconfirm $pkg_string
+if [ "${#packages[@]}" -gt 0 ]; then
+    echo -e "${CYAN}-> Instalando/verificando los paquetes del módulo de compiladores...${RESET}"
+    pacman -S --needed --cachedir "$CACHE_DIR" --noconfirm $pkg_string
+fi
 
 echo ""
-echo -e "${GREEN}[ÉXITO] Entorno actualizado: sistema al día y baseline completo.${RESET}"
+echo -e "${GREEN}[ÉXITO] Entorno actualizado: sistema al día y paquetes completos.${RESET}"
 echo "Sugerencia: ejecutá 'doctor' para validar la salud del entorno."

@@ -74,6 +74,87 @@ function Get-PortableHomeName {
     return $homeDirName
 }
 
+function Set-PortableUvEnvironment {
+    <#
+    .SYNOPSIS
+    Confina uv dentro del entorno portable: cache, interpretes de Python y herramientas
+    (uv tool install) quedan bajo la raiz, sin escribir en %LOCALAPPDATA%, en el perfil
+    del usuario ni en el registro de Windows. Lo usan setup.ps1 y las sesiones.
+    #>
+    param([string]$PortableRoot)
+
+    $env:UV_CACHE_DIR               = Join-Path $PortableRoot "descargas\uv_cache"
+    $env:UV_PYTHON_INSTALL_DIR      = Join-Path $PortableRoot "python"
+    $env:UV_PYTHON_BIN_DIR          = Join-Path $PortableRoot "python\bin"
+    $env:UV_PYTHON_INSTALL_BIN      = "0"
+    $env:UV_PYTHON_INSTALL_REGISTRY = "0"
+    $env:UV_PYTHON_PREFERENCE       = "only-managed"
+    $env:UV_TOOL_DIR                = Join-Path $PortableRoot "local\uv-tools"
+    $env:UV_TOOL_BIN_DIR            = Join-Path $PortableRoot "local\bin"
+    $env:UV_NO_MODIFY_PATH          = "1"
+}
+
+function Get-PortablePythonDir {
+    <#
+    .SYNOPSIS
+    Devuelve la carpeta del Python de la base (la que contiene python.exe) o $null si
+    no esta instalado. setup.ps1 registra el nombre en python\ACTUAL; si falta, se
+    elige la instalacion mas nueva de python\cpython-*. Las carpetas enlace (junctions
+    que uv crea por version menor) se ignoran: guardan rutas absolutas y dejan de
+    funcionar si el entorno se mueve de carpeta o de unidad.
+    #>
+    param([string]$PortableRoot)
+
+    $pythonRoot = Join-Path $PortableRoot "python"
+    if (-not (Test-Path $pythonRoot)) { return $null }
+
+    $pointer = Join-Path $pythonRoot "ACTUAL"
+    if (Test-Path $pointer) {
+        $name = (Get-Content $pointer -Raw).Trim()
+        if ($name -match '^[A-Za-z0-9._+-]+$') {
+            $candidate = Join-Path $pythonRoot $name
+            if (Test-Path (Join-Path $candidate "python.exe")) { return $candidate }
+        }
+    }
+
+    $best = $null
+    $bestVersion = $null
+    foreach ($dir in @(Get-ChildItem -Path $pythonRoot -Directory -Filter "cpython-*" -ErrorAction SilentlyContinue)) {
+        if ($dir.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { continue }
+        if (-not (Test-Path (Join-Path $dir.FullName "python.exe"))) { continue }
+        if ($dir.Name -notmatch '^cpython-(\d+\.\d+\.\d+)') { continue }
+        $version = [version]$Matches[1]
+        if ($null -eq $bestVersion -or $version -gt $bestVersion) {
+            $bestVersion = $version
+            $best = $dir.FullName
+        }
+    }
+    return $best
+}
+
+function Install-PerfilMsys {
+    <#
+    .SYNOPSIS
+    Copia config\perfil-msys2.sh a msys64\etc\profile.d\p1-entorno.sh si falta o cambio.
+    MSYS2 (UCRT64) antepone /ucrt64/bin y /usr/bin al PATH heredado; ese perfil vuelve a
+    poner adelante bin\, el Python y el Git de la base. Se instala en cada inicio de sesion
+    para cubrir instalaciones anteriores e imagenes descomprimidas a mano.
+    #>
+    param([string]$PortableRoot)
+
+    $origen = Join-Path (Join-Path $PortableRoot "config") "perfil-msys2.sh"
+    $profileDir = Join-Path (Join-Path (Join-Path $PortableRoot "msys64") "etc") "profile.d"
+    if (-not (Test-Path $origen) -or -not (Test-Path $profileDir)) { return }
+    $destino = Join-Path $profileDir "p1-entorno.sh"
+    $contenido = [System.IO.File]::ReadAllText($origen)
+    if ((Test-Path $destino) -and [System.IO.File]::ReadAllText($destino) -eq $contenido) { return }
+    try {
+        [System.IO.File]::WriteAllText($destino, $contenido, (New-Object System.Text.UTF8Encoding($false)))
+    } catch {
+        Write-Warning "No se pudo actualizar el perfil de MSYS2 ($destino): $_"
+    }
+}
+
 function Set-PortableSession {
     <#
     .SYNOPSIS
@@ -98,11 +179,30 @@ function Set-PortableSession {
     $env:CHERE_INVOKING = "1"
     $env:LANG = "es_AR.UTF-8"
 
-    # Scripts internos, compilador y userland de MSYS2 al frente del PATH
+    # Scripts internos, Python y Git de la base, compilador y userland de MSYS2 al frente del PATH.
+    # El Python de la base (uv) va antes que ucrt64\bin: en instalaciones viejas el modulo de
+    # compiladores traia otro python3 y la base debe ganar. Las consolas bash heredan este
+    # PATH (MSYS2_PATH_TYPE=inherit) para que vean el mismo Python que VS Code.
     $binPath = Join-Path $PortableRoot "bin"
     $gccPath = Join-Path $PortableRoot "msys64\ucrt64\bin"
     $usrPath = Join-Path $PortableRoot "msys64\usr\bin"
-    $env:PATH = "$binPath;$gccPath;$usrPath;$env:PATH"
+    $pythonPaths = ""
+    $pythonDir = Get-PortablePythonDir -PortableRoot $PortableRoot
+    if ($pythonDir) {
+        $pythonPaths = "$pythonDir;$(Join-Path $pythonDir 'Scripts');"
+        # Lo usa el perfil de MSYS2 (config\perfil-msys2.sh) para conservar este orden en bash
+        $env:P1_PYTHON_DIR = $pythonDir
+    }
+    # Git de la base (MinGit): cmd\ trae solo git.exe y sus wrappers, sin pisar el userland
+    $gitPaths = ""
+    $mingitCmd = Join-Path $PortableRoot "mingit\cmd"
+    if (Test-Path (Join-Path $mingitCmd "git.exe")) {
+        $gitPaths = "$mingitCmd;"
+    }
+    $env:PATH = "$binPath;$pythonPaths$gitPaths$gccPath;$usrPath;$env:PATH"
+    $env:MSYS2_PATH_TYPE = "inherit"
+    Set-PortableUvEnvironment -PortableRoot $PortableRoot
+    Install-PerfilMsys -PortableRoot $PortableRoot
 
     # Variables especificas del Toolchain de C/C++
     # (GCC en MSYS2 resuelve sus directorios internos relativos a su ubicacion;
@@ -186,4 +286,4 @@ function Set-VsCodeCompilerSettings {
     return $false
 }
 
-Export-ModuleMember -Function Test-ConflictivePath, Show-PathWarning, Get-PortableHomeName, Set-PortableSession, Set-VsCodeCompilerSettings
+Export-ModuleMember -Function Test-ConflictivePath, Show-PathWarning, Get-PortableHomeName, Set-PortableUvEnvironment, Get-PortablePythonDir, Install-PerfilMsys, Set-PortableSession, Set-VsCodeCompilerSettings

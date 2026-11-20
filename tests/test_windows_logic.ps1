@@ -8,6 +8,8 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $SetupPath = Join-Path $RepoRoot "setup.ps1"
+# Funciones compartidas por setup.ps1 y los modulos opcionales (modulos/*.ps1)
+$LibPath = Join-Path $RepoRoot "lib/instalador.ps1"
 $Fail = 0
 
 function Get-FunctionFromScript {
@@ -28,9 +30,103 @@ function Assert-True {
 }
 
 # ============================================================
+# 0. Los scripts del instalador parsean sin errores (base, lib y modulos)
+# ============================================================
+foreach ($rel in @("setup.ps1", "install.ps1", "lib/instalador.ps1", "modulos/compiladores.ps1", "modulos/vscode.ps1", "herramientas/construir-imagenes.ps1")) {
+    $parseErrs = $null
+    [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $RepoRoot $rel), [ref]$null, [ref]$parseErrs) | Out-Null
+    Assert-True "$rel parsea sin errores" (-not $parseErrs)
+    foreach ($e in @($parseErrs)) { if ($e) { Write-Host "   $($e.Extent.StartLineNumber): $($e.Message)" } }
+}
+
+# La base no instala el compilador ni VS Code: eso queda en los modulos
+$setupText = Get-Content -Raw (Join-Path $RepoRoot "setup.ps1")
+Assert-True "setup.ps1 no instala packages-compiladores.txt" (-not ($setupText -match 'packages-compiladores\.txt"\)'))
+Assert-True "setup.ps1 no descarga VS Code" (-not ($setupText -match 'win32-x64-archive'))
+Assert-True "setup.ps1 no usa pacman (git viene de MinGit)" (-not ($setupText -match 'Invoke-PacmanWithRetry -'))
+Assert-True "modulos/vscode.ps1 descarga VS Code" ((Get-Content -Raw (Join-Path $RepoRoot "modulos/vscode.ps1")) -match 'win32-x64-archive')
+# El marcador de VS Code se invalida antes de las extensiones y se recrea despues de todas:
+# una extension que falla en una actualizacion no puede dejar el marcador viejo
+$vscodeTexto = Get-Content -Raw (Join-Path $RepoRoot "modulos/vscode.ps1")
+$iBorra = $vscodeTexto.IndexOf('Remove-Item -Path (Join-Path $portableRoot ".vscode_complete")')
+$iBucle = $vscodeTexto.IndexOf('foreach ($ext in $extensions)')
+$iCrea = $vscodeTexto.IndexOf('Set-Content -Path (Join-Path $portableRoot ".vscode_complete")')
+Assert-True "vscode: el marcador se borra antes de instalar extensiones y se crea despues" ($iBorra -ge 0 -and $iBorra -lt $iBucle -and $iBucle -lt $iCrea)
+
+# La ventana no desaparece al terminar: install.ps1 corre con iex en la consola del usuario,
+# donde 'exit' la cerraria; setup.ps1 atiende cualquier error con un trap que espera.
+$installAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $RepoRoot "install.ps1"), [ref]$null, [ref]$null)
+$exits = $installAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] }, $true)
+Assert-True "install.ps1 no usa exit (cerraria la ventana del usuario)" (@($exits).Count -eq 0)
+$setupAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $RepoRoot "setup.ps1"), [ref]$null, [ref]$null)
+$traps = $setupAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.TrapStatementAst] }, $false)
+Assert-True "setup.ps1 tiene un trap que muestra el error y espera" (@($traps).Count -ge 1)
+
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Wait-AntesDeCerrar")))
+$prevCI = $env:CI
+try {
+    $env:CI = "true"
+    $salida = (& { Wait-AntesDeCerrar -ConError -Mensaje "aviso de prueba" } 6>&1) | Out-String
+    Assert-True "Wait-AntesDeCerrar no bloquea en CI y muestra el error y el aviso" ($salida -match "errores" -and $salida -match "aviso de prueba")
+    $env:CI = $null
+    $salida = (& { Wait-AntesDeCerrar -Yes } 6>&1) | Out-String
+    Assert-True "Wait-AntesDeCerrar no bloquea con -Yes" ($salida -notmatch "errores")
+} finally {
+    $env:CI = $prevCI
+}
+
+# Imagenes precompiladas: la base no trae los marcadores que setup.ps1 completa en la maquina
+# del usuario, y Get-ImagenRelease resuelve tag y URLs desde la API (aca, simulada).
+$libTexto = Get-Content -Raw $LibPath
+$componentesAst = [System.Management.Automation.Language.Parser]::ParseInput($libTexto, [ref]$null, [ref]$null).FindAll({ param($n)
+    $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$ComponentesImagenBase' }, $true) | Select-Object -First 1
+$ComponentesImagenBase = & ([scriptblock]::Create($componentesAst.Right.Extent.Text))
+Assert-True "la imagen base trae msys64, mingit, python y wezterm" (@("msys64", "mingit", "python", "wezterm" | Where-Object { $ComponentesImagenBase -contains $_ }).Count -eq 4)
+Assert-True "la imagen base no trae .install_complete ni .msys_complete" (-not ($ComponentesImagenBase -contains ".install_complete") -and -not ($ComponentesImagenBase -contains ".msys_complete"))
+
+$RepoImagenes = "INGCOM-UNRN/entorno"
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Get-ImagenRelease")))
+function Get-GitHubApiCached { param([string]$Url)
+    $script:urlConsultada = $Url
+    return [pscustomobject]@{ tag_name = "v9.9.9"; assets = @(
+        [pscustomobject]@{ name = "entorno-base-windows-x64.zip"; browser_download_url = "https://x/v9.9.9/entorno-base-windows-x64.zip" },
+        [pscustomobject]@{ name = "SHA256SUMS"; browser_download_url = "https://x/v9.9.9/SHA256SUMS" }) }
+}
+$rel = Get-ImagenRelease
+Assert-True "sin tag consulta el ultimo release" ($script:urlConsultada -match "/releases/latest$")
+Assert-True "devuelve el tag y las URLs por nombre" ($rel.Tag -eq "v9.9.9" -and $rel.Assets["entorno-base-windows-x64.zip"] -match "entorno-base")
+$null = Get-ImagenRelease -Tag "v1.2.0"
+Assert-True "con tag consulta ese release" ($script:urlConsultada -match "/releases/tags/v1\.2\.0$")
+Remove-Item Function:\Get-GitHubApiCached
+
+# Invoke-EliminadosCapa: aplica la lista de la capa de compiladores y la borra
+$ListaEliminadosCapa = "msys64/var/lib/p1-entorno/capa-compiladores-eliminados.txt"
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Invoke-EliminadosCapa")))
+$capa = Join-Path ([System.IO.Path]::GetTempPath()) ("capa-" + [guid]::NewGuid().ToString("N"))
+try {
+    $viejo = Join-Path $capa "msys64/var/lib/pacman/local/zlib-1.0"
+    New-Item -ItemType Directory -Force -Path $viejo | Out-Null
+    Set-Content (Join-Path $viejo "desc") "x"
+    Set-Content (Join-Path $viejo "files") "x"
+    Set-Content (Join-Path $capa "afuera.txt") "no se toca"
+    New-Item -ItemType Directory -Force -Path (Join-Path $capa "msys64/var/lib/p1-entorno") | Out-Null
+    Set-Content (Join-Path $capa $ListaEliminadosCapa) @(
+        "msys64/var/lib/pacman/local/zlib-1.0/desc", "msys64/var/lib/pacman/local/zlib-1.0/files",
+        "afuera.txt", "msys64/../afuera.txt")
+    $n = Invoke-EliminadosCapa -PortableRoot $capa
+    Assert-True "eliminados: borra los archivos listados dentro de msys64" ($n -eq 2)
+    Assert-True "eliminados: quita la carpeta que queda vacia (registro de pacman)" (-not (Test-Path $viejo))
+    Assert-True "eliminados: ignora rutas fuera de msys64 o con .." (Test-Path (Join-Path $capa "afuera.txt"))
+    Assert-True "eliminados: la lista se borra despues de aplicarla" (-not (Test-Path (Join-Path $capa $ListaEliminadosCapa)))
+    Assert-True "eliminados: sin lista no hace nada" ((Invoke-EliminadosCapa -PortableRoot $capa) -eq 0)
+} finally {
+    Remove-Item -Recurse -Force $capa -ErrorAction SilentlyContinue
+}
+
+# ============================================================
 # 1. Invoke-DownloadWithRetry: reintentos uniformes de descargas
 # ============================================================
-. ([scriptblock]::Create((Get-FunctionFromScript -Path $SetupPath -Name "Invoke-DownloadWithRetry")))
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Invoke-DownloadWithRetry")))
 
 $work = Join-Path ([System.IO.Path]::GetTempPath()) ("dlretry-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $work | Out-Null
@@ -75,7 +171,7 @@ try {
 $envRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("apicache-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $envRoot | Out-Null
 $descargasDir = Join-Path $envRoot "descargas"
-. ([scriptblock]::Create((Get-FunctionFromScript -Path $SetupPath -Name "Get-GitHubApiCached")))
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Get-GitHubApiCached")))
 
 try {
     $script:apiCalls = 0
@@ -115,7 +211,7 @@ try {
 # ============================================================
 # 3. Select-PacmanMirrorByLatency: espejo regional por latencia
 # ============================================================
-. ([scriptblock]::Create((Get-FunctionFromScript -Path $SetupPath -Name "Select-PacmanMirrorByLatency")))
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Select-PacmanMirrorByLatency")))
 
 $msysFake = Join-Path ([System.IO.Path]::GetTempPath()) ("mirror-" + [guid]::NewGuid().ToString("N"))
 $pacmand = Join-Path $msysFake "etc\pacman.d"
@@ -164,7 +260,7 @@ try {
 # ============================================================
 # 4. Get-Pinned: resolucion del manifiesto versions.json
 # ============================================================
-. ([scriptblock]::Create((Get-FunctionFromScript -Path $SetupPath -Name "Get-Pinned")))
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Get-Pinned")))
 
 $script:pinnedVersions = [pscustomobject]@{
     canal   = "2026-c1"
@@ -183,7 +279,7 @@ $script:pinnedVersions = $null
 # ============================================================
 # 5. Get-FileNameFromUrl: nombre de archivo desde URL
 # ============================================================
-. ([scriptblock]::Create((Get-FunctionFromScript -Path $SetupPath -Name "Get-FileNameFromUrl")))
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Get-FileNameFromUrl")))
 
 Assert-True "toma el ultimo segmento con extension valida" `
     ((Get-FileNameFromUrl -Url "https://ejemplo/descargas/msys2-base.sfx.exe" -DefaultName "x") -eq "msys2-base.sfx.exe")
@@ -211,7 +307,7 @@ Assert-True "ruta vacia devuelve false" (-not (Test-IsDirectHomePath -Path ""))
 # ============================================================
 # N. Assert-ReleaseSha256: integridad de jonesy y ripley.pyz (Ola 11)
 # ============================================================
-. ([scriptblock]::Create((Get-FunctionFromScript -Path $SetupPath -Name "Assert-ReleaseSha256")))
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Assert-ReleaseSha256")))
 
 $work = Join-Path ([System.IO.Path]::GetTempPath()) ("sha-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $work | Out-Null

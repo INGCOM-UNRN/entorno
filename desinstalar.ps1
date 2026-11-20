@@ -11,6 +11,25 @@ if ([string]::IsNullOrEmpty($portableRoot)) {
     $portableRoot = (Get-Location).Path
 }
 
+# La ventana no desaparece al terminar (con exito, cancelado o con error): se abre con
+# "Ejecutar con PowerShell" y el resultado tiene que poder leerse.
+$libInstalador = Join-Path $portableRoot "lib\instalador.ps1"
+if (Test-Path $libInstalador) {
+    . $libInstalador
+} else {
+    function Wait-AntesDeCerrar {
+        param([switch]$ConError)
+        if ($ConError) { Write-Host "Termino con errores: revisa los mensajes de arriba." -ForegroundColor Red }
+        try { if (-not [Console]::IsInputRedirected) { $null = Read-Host "Presiona Enter para terminar" } } catch { }
+    }
+}
+trap {
+    Write-Host ""
+    Write-Host "ERROR: $_" -ForegroundColor Red
+    Wait-AntesDeCerrar -ConError
+    break
+}
+
 # Resolver el nombre del directorio HOME portable desde .env
 $homeDirName = "home"
 $envFile = Join-Path $portableRoot ".env"
@@ -26,9 +45,11 @@ if (Test-Path $envFile) {
 
 # Componentes generados por setup.ps1 y el uso del entorno (nunca toca los scripts del repo)
 $targets = @(
-    @{ Path = Join-Path $portableRoot "msys64";  Desc = "Compiladores y userland MSYS2 (~2 GB)" },
+    @{ Path = Join-Path $portableRoot "msys64";  Desc = "Userland MSYS2 y modulo de compiladores" },
     @{ Path = Join-Path $portableRoot "vscode";  Desc = "VS Code Portable y extensiones" },
     @{ Path = Join-Path $portableRoot "wezterm"; Desc = "Terminal WezTerm" },
+    @{ Path = Join-Path $portableRoot "python";  Desc = "Python de la base (instalado con uv)" },
+    @{ Path = Join-Path $portableRoot "mingit";  Desc = "Git de la base (MinGit)" },
     @{ Path = Join-Path $portableRoot "descargas"; Desc = "Cache de descargas e instaladores" },
     @{ Path = Join-Path $portableRoot "downloads"; Desc = "Cache de descargas (nombre historico)" },
     @{ Path = Join-Path $portableRoot "local";   Desc = "Librerias instaladas con install-lib.sh" },
@@ -40,6 +61,8 @@ $targets = @(
     @{ Path = Join-Path $portableRoot ".install_complete"; Desc = "Marcador de instalacion" },
     @{ Path = Join-Path $portableRoot ".msys_complete"; Desc = "Marcador de instalacion" },
     @{ Path = Join-Path $portableRoot ".vscode_complete"; Desc = "Marcador de instalacion" },
+    @{ Path = Join-Path $portableRoot ".compiladores_complete"; Desc = "Marcador de instalacion" },
+    @{ Path = Join-Path $portableRoot ".imagen"; Desc = "Release de la imagen precompilada usada" },
     @{ Path = Join-Path $portableRoot ".gh_complete"; Desc = "Marcador de instalacion" },
     @{ Path = Join-Path $portableRoot ".wezterm_complete"; Desc = "Marcador de instalacion" }
 )
@@ -62,6 +85,7 @@ Write-Host ""
 $choice = Read-Host "Esta accion es IRREVERSIBLE. Deseas desinstalar? (s/n)"
 if ($choice -notmatch "^[sS]$") {
     Write-Host "Operacion cancelada. No se modifico nada." -ForegroundColor Green
+    Wait-AntesDeCerrar
     exit 0
 }
 
@@ -75,3 +99,4 @@ foreach ($t in $targets) {
 Write-Host "`n=== DESINSTALACION COMPLETADA ===" -ForegroundColor Green
 Write-Host "El repositorio quedo limpio; podes volver a inicializar el entorno en cualquier"
 Write-Host "momento ejecutando setup.ps1 (Windows) o usando la variante linux/." -ForegroundColor Green
+Wait-AntesDeCerrar

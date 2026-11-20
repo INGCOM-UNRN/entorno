@@ -9,6 +9,9 @@ end
 
 local bash_path = portable_root .. "msys64/usr/bin/bash.exe"
 config.default_prog = { bash_path, "--login", "-i" }
+-- Si bash termina con error (por ejemplo, un .bashrc roto), la ventana queda abierta
+-- mostrando el mensaje en lugar de desaparecer; con 'exit' normal se cierra.
+config.exit_behavior = "CloseOnCleanExit"
 
 -- Configurar entorno heredado forzando el HOME portable (aislado del sistema host)
 local home_dir = portable_root .. "@HOME_DIR_NAME@"
@@ -17,7 +20,9 @@ config.default_cwd = home_dir
 local path_env = os.getenv("PATH")
 if path_env then path_env = path_env:gsub("[\\]+", "/") else path_env = "" end
 
-local custom_path = portable_root .. "bin;" .. portable_root .. "msys64/ucrt64/bin;" .. portable_root .. "msys64/usr/bin;" .. path_env
+-- El PATH heredado ya viene ordenado por launch.ps1 (bin, Python y Git de la base, UCRT64,
+-- usr/bin): no se antepone UCRT64 para no ganarle al Python de la base.
+local custom_path = portable_root .. "bin;" .. path_env
 
 config.set_environment_variables = {
   MSYSTEM = "UCRT64",

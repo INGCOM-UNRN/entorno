@@ -1,10 +1,72 @@
+# setup.ps1 - Instalador del entorno portable (Windows), en dos fases:
+#
+#   1. Base (este script): MSYS2 (bash), Git (MinGit), uv, Python con las dependencias de
+#      las herramientas de la catedra, GitHub CLI, jonesy, WezTerm y Ripley. Es liviana, no
+#      usa pacman y alcanza para usar el entorno en contextos que no compilan C.
+#   2. Modulos opcionales (modulos\*.ps1), instalables en cualquier momento:
+#        compiladores  gcc, gdb, make, cmake y herramientas de analisis (pacman)
+#        vscode        VS Code portable con sus extensiones
+#      Al terminar la base se ofrece instalarlos; despues: instalar-compiladores.bat,
+#      instalar-vscode.bat o, desde la consola, 'instalar compiladores|vscode'.
+#
+# -Modulos: compiladores, vscode, todos o ninguno (se aceptan varios: -Modulos compiladores,vscode).
+#   Sin el parametro, una instalacion nueva pregunta por cada modulo (-Yes los instala todos)
+#   y una actualizacion actualiza solo los modulos que ya estaban instalados.
+#
+# Instalacion rapida: en una instalacion nueva, la base se toma de la imagen precompilada del
+# ultimo release (o del tag "imagen" de versions.json), una sola descarga verificada en lugar
+# de una por componente; el modulo de compiladores usa la capa del mismo release. -SinImagen
+# fuerza la instalacion componente por componente (tambien -Latest, que pide lo mas nuevo).
 param(
     [string]$HomeDirName = "home",
     [switch]$ImportHostConfig,
     [switch]$SkipUpdate,
     [switch]$Yes,
-    [switch]$Latest
+    [switch]$Latest,
+    [string[]]$Modulos,
+    [switch]$SinImagen
 )
+
+# ------------------------------------------------------------------
+# La ventana no desaparece al terminar
+# ------------------------------------------------------------------
+# Si setup.ps1 se abre con "Ejecutar con PowerShell", desde un .bat o desde update-env.sh,
+# la ventana se cierra en cuanto termina el script: un error se veria un instante y nada mas.
+# Por eso espera una tecla al final, con exito o con error. Solo pausa la ejecucion externa
+# (al relanzarse tras autoactualizarse, P1_SETUP_RELANZADO marca la interna) y nunca sin
+# consola interactiva (-Yes, CI). Se define aca y no en lib\: install.ps1 descarga solo
+# setup.ps1, asi que en la primera ejecucion lib\ todavia no existe.
+$script:esEjecucionRaiz = ($env:P1_SETUP_RELANZADO -ne "1")
+$script:pausaHecha = $false
+$script:instalacionOk = $false
+$script:modulosFallidos = @()
+function Wait-FinSetup {
+    param([switch]$ConError, [string]$Mensaje = "")
+    if (-not $script:esEjecucionRaiz -or $script:pausaHecha) { return }
+    $script:pausaHecha = $true
+    if ($ConError) {
+        Write-Host ""
+        Write-Host "La instalacion no termino: revisa el error de arriba (el detalle completo queda en install.log)." -ForegroundColor Red
+        Write-Host "Podes volver a ejecutar setup.ps1: retoma lo pendiente y reutiliza lo ya descargado." -ForegroundColor Yellow
+    }
+    if ($Mensaje) { Write-Host $Mensaje -ForegroundColor Yellow }
+    if ($Yes -or $env:CI) { return }
+    try {
+        if ([Console]::IsInputRedirected) { return }
+    } catch {
+        return
+    }
+    if (-not [Environment]::UserInteractive) { return }
+    Write-Host ""
+    $null = Read-Host "Presiona Enter para terminar"
+}
+# Cualquier error no manejado (tambien los de antes del bloque principal) se muestra y espera
+trap {
+    Write-Host ""
+    Write-Host "ERROR: $_" -ForegroundColor Red
+    Wait-FinSetup -ConError
+    break
+}
 
 $ErrorActionPreference = "Stop"
 
@@ -92,245 +154,26 @@ $homeDir = Join-Path $portableRoot $HomeDirName
 $vscodeDir = Join-Path $portableRoot "vscode"
 $isUpdateMode = Test-Path (Join-Path $portableRoot ".install_complete")
 
-# Manifiesto de versiones por cuatrimestre (versions.json): valores null = ultima disponible.
-# Por defecto se respetan los pines para reproducibilidad; -Latest los ignora.
-$pinnedVersions = $null
-$manifestFile = Join-Path $portableRoot "versions.json"
-if ((Test-Path $manifestFile) -and (-not $Latest)) {
-    try {
-        $pinnedVersions = Get-Content $manifestFile -Raw | ConvertFrom-Json
-        if ($pinnedVersions.canal) {
-            Write-Host "Canal de versiones configurado: $($pinnedVersions.canal)" -ForegroundColor DarkGray
-        }
-    } catch {
-        Write-Warning "versions.json invalido ($_). Se usaran las ultimas versiones disponibles."
-        $pinnedVersions = $null
-    }
-}
-function Get-Pinned([string]$Key) {
-    if ($null -eq $script:pinnedVersions) { return $null }
-    $prop = $script:pinnedVersions.PSObject.Properties[$Key]
-    if ($null -eq $prop) { return $null }
-    if ($prop.Value -is [string] -and $prop.Value.Trim()) { return $prop.Value.Trim() }
-    return $null
-}
-
-# Cache de respuestas de la API de GitHub: en aulas con NAT compartido el limite
-# de 60 consultas por hora por IP se agota rapido. Guarda cada respuesta en
-# descargas/api_cache con vencimiento (24 horas) y, si la API no responde o
-# rechaza por limite de peticiones, reutiliza la ultima copia aunque este vencida.
-function Get-GitHubApiCached {
-    param([string]$Url)
-    $cacheDir = Join-Path $descargasDir "api_cache"
-    $sha = [System.Security.Cryptography.SHA256]::Create()
-    try {
-        $hashBytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Url))
-    } finally {
-        $sha.Dispose()
-    }
-    $hash = [System.BitConverter]::ToString($hashBytes).Replace("-", "").Substring(0, 16).ToLower()
-    $cacheFile = Join-Path $cacheDir "$hash.json"
-    $stampFile = Join-Path $cacheDir "$hash.stamp"
-    $ttlHours = 24
-
-    $cachedJson = $null
-    $cacheFresh = $false
-    if (Test-Path $cacheFile) {
-        $cachedJson = Get-Content $cacheFile -Raw
-        if (Test-Path $stampFile) {
-            try {
-                $stampUtc = [datetimeoffset]::Parse((Get-Content $stampFile -Raw).Trim()).UtcDateTime
-                if (((Get-Date).ToUniversalTime() - $stampUtc).TotalHours -lt $ttlHours) { $cacheFresh = $true }
-            } catch { }
-        }
-        if ($cacheFresh) {
-            Write-Host "Respuesta de la API de GitHub servida desde la cache local." -ForegroundColor DarkGray
-            try { return ($cachedJson | ConvertFrom-Json) } catch { }
-        }
-    }
-
-    try {
-        $response = Invoke-RestMethod -Uri $Url -UseBasicParsing -TimeoutSec 10
-        New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
-        Set-Content -Path $cacheFile -Value ($response | ConvertTo-Json -Depth 20)
-        Set-Content -Path $stampFile -Value (Get-Date).ToUniversalTime().ToString("o")
-        return $response
-    } catch {
-        if (-not [string]::IsNullOrEmpty($cachedJson)) {
-            Write-Warning "Consulta a la API de GitHub fallida; se usa la cache local (aunque vencida)."
-            try { return ($cachedJson | ConvertFrom-Json) } catch { }
-        }
-        throw
-    }
-}
-
-# Descarga uniforme con reintentos para archivos grandes (MSYS2, VS Code, gh, WezTerm).
-# Un unico punto para ajustar cantidad de intentos y espera entre intentos.
-function Invoke-DownloadWithRetry {
-    param(
-        [string]$Url,
-        [string]$OutFile,
-        [int]$MaxAttempts = 3,
-        [int]$DelaySeconds = 2
-    )
-    $attempts = 0
-    while ($true) {
-        $attempts++
-        try {
-            Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -ErrorAction Stop
-            return
-        } catch {
-            if ($attempts -ge $MaxAttempts) { throw }
-            Start-Sleep -Seconds $DelaySeconds
-        }
-    }
-}
-
-# Integridad de los artefactos de la catedra (Ola 11): compara el archivo con la linea de su
-# nombre en el SHA256SUMS publicado junto a la URL (el mismo release), o con -Expected si se da
-# (versions.json: "<clave>_sha256"). Lanza una excepcion si no coincide o no se puede comprobar:
-# quien llama cancela la instalacion en vez de ejecutar algo descargado sin verificar.
-function Assert-ReleaseSha256 {
-    param(
-        [string]$Path,
-        [string]$Url,
-        [string]$Expected = ""
-    )
-    $name = $Url.Substring($Url.LastIndexOf('/') + 1)
-    if (-not $Expected) {
-        $sumsUrl = $Url.Substring(0, $Url.LastIndexOf('/')) + "/SHA256SUMS"
-        $sumsPath = "$Path.SHA256SUMS"
-        try {
-            Invoke-DownloadWithRetry -Url $sumsUrl -OutFile $sumsPath
-        } catch {
-            throw "No se pudo descargar $sumsUrl para verificar $name."
-        }
-        foreach ($line in (Get-Content -Path $sumsPath)) {
-            $parts = $line.Trim() -split '\s+', 2
-            if ($parts.Count -eq 2 -and ($parts[1] -eq $name -or $parts[1] -eq "*$name")) {
-                $Expected = $parts[0]
-                break
-            }
-        }
-        Remove-Item -Path $sumsPath -Force -ErrorAction SilentlyContinue
-        if (-not $Expected) { throw "El SHA256SUMS del release no trae la suma de $name." }
-    }
-    $actual = (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLower()
-    if ($actual -ne $Expected.Trim().ToLower()) {
-        throw "La suma SHA-256 de $name no coincide con la del release (esperada: $($Expected.Trim().ToLower()); descargada: $actual)."
-    }
-}
-
-# Espejo regional de pacman: mide latencia contra candidatos (prioridad sudamericana
-# para Red UNRN) y configura el mas rapido como primera opcion de cada mirrorlist.
-# Devuelve el espejo elegido o $null si ninguno respondio (no toca archivos en ese caso).
-function Select-PacmanMirrorByLatency {
-    param(
-        [string]$MsysDir,
-        [int]$TimeoutSec = 4
-    )
-    $mirrorCandidates = @(
-        "https://mirror.ufro.cl/msys2",
-        "https://repo.msys2.org",
-        "https://mirrors.utexas.edu/msys2",
-        "https://mirrors.ocf.berkeley.edu/msys2"
-    )
-    try {
-        Write-Host "Midiendo latencia de espejos de pacman..." -ForegroundColor Cyan
-        $bestMirror = $null
-        $bestMs = [double]::MaxValue
-        foreach ($candidate in $mirrorCandidates) {
-            try {
-                $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-                Invoke-WebRequest -Uri "$candidate/distrib/" -Method Head -UseBasicParsing -TimeoutSec $TimeoutSec | Out-Null
-                $stopwatch.Stop()
-                Write-Host ("  {0} -> {1} ms" -f $candidate, $stopwatch.ElapsedMilliseconds) -ForegroundColor DarkGray
-                if ($stopwatch.ElapsedMilliseconds -lt $bestMs) {
-                    $bestMs = $stopwatch.ElapsedMilliseconds
-                    $bestMirror = $candidate
-                }
-            } catch {
-                Write-Host "  $candidate -> sin respuesta" -ForegroundColor DarkGray
-            }
-        }
-        if (-not $bestMirror) {
-            Write-Warning "Ningun espejo de pacman respondio; se conservan los servidores por defecto."
-            return $null
-        }
-        Write-Host "Espejo pacman seleccionado: $bestMirror (${bestMs} ms)" -ForegroundColor Green
-        $markerLine = "# Espejo seleccionado automaticamente por setup.ps1 (latencia)"
-        $repoSubPaths = @{
-            "mirrorlist.msys"    = "/msys/x86_64/"
-            "mirrorlist.ucrt64"  = "/mingw/ucrt64/"
-            "mirrorlist.mingw64" = "/mingw/mingw64/"
-            "mirrorlist.clang64" = "/mingw/clang64/"
-        }
-        foreach ($mirrorListName in $repoSubPaths.Keys) {
-            $mirrorListFile = Join-Path (Join-Path $MsysDir "etc\pacman.d") $mirrorListName
-            if (-not (Test-Path $mirrorListFile)) { continue }
-            $existingLines = @(Get-Content $mirrorListFile)
-            $serverLine = "Server = $($bestMirror)$($repoSubPaths[$mirrorListName])"
-            $kept = @($existingLines | Where-Object { $_ -ne $serverLine -and $_ -notmatch 'Espejo seleccionado automaticamente' })
-            Set-Content -Path $mirrorListFile -Value (@($markerLine, $serverLine) + $kept)
-        }
-        return $bestMirror
-    } catch {
-        Write-Warning "Fallo la seleccion de espejo de pacman; se conservan los servidores por defecto."
-        return $null
-    }
-}
-
+# Funciones compartidas con los modulos (descargas, pines de versions.json, pacman)
+$libPath = Join-Path $portableRoot "lib\instalador.ps1"
 # Codificacion UTF-8 sin BOM para los archivos que genera el instalador
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
-# Funcion para extraer el nombre de archivo de una URL o usar un fallback
-function Get-FileNameFromUrl {
-    param(
-        [string]$Url,
-        [string]$DefaultName
-    )
-    if ([string]::IsNullOrEmpty($Url)) { return $DefaultName }
-    $leaf = $Url.Split('/')[-1]
-    if ($leaf -match "\?") {
-        $leaf = $leaf.Split('?')[0]
-    }
-    if ($leaf -match "\.(zip|exe|tar|gz|sfx)$") {
-        return $leaf
-    }
-    return $DefaultName
-}
-
-# Funcion para ejecutar comandos de pacman con reintentos
-function Invoke-PacmanWithRetry {
-    param(
-        [string]$BashPath,
-        [string]$Arguments,
-        [int]$MaxAttempts = 3,
-        [int]$DelaySeconds = 5
-    )
-    
-    $attempts = 0
-    $success = $false
-    
-    while (-not $success -and $attempts -lt $MaxAttempts) {
-        $attempts++
-        if ($attempts -gt 1) {
-            Write-Host "Reintentando comando pacman (Intento $attempts de $MaxAttempts) en $DelaySeconds segundos..." -ForegroundColor Yellow
-            Start-Sleep -Seconds $DelaySeconds
-        }
-        
-        # Ejecutar pacman con los argumentos correspondientes
-        & $BashPath --login -c "pacman $Arguments"
-        
-        if ($LASTEXITCODE -eq 0) {
-            $success = $true
+# Modulos opcionales: se validan antes de empezar para no fallar a mitad de la instalacion
+$modulosValidos = @("compiladores", "vscode")
+$modulosPedidos = $null
+if ($PSBoundParameters.ContainsKey('Modulos')) {
+    $modulosPedidos = @()
+    foreach ($nombre in @($Modulos | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim().ToLower() } | Where-Object { $_ })) {
+        if ($nombre -eq "todos") {
+            $modulosPedidos = @($modulosValidos)
+        } elseif ($nombre -eq "ninguno") {
+            $modulosPedidos = @()
+        } elseif ($modulosValidos -contains $nombre) {
+            if ($modulosPedidos -notcontains $nombre) { $modulosPedidos += $nombre }
         } else {
-            Write-Warning "El comando 'pacman $Arguments' fallo con codigo de salida: $LASTEXITCODE"
+            throw "Modulo desconocido '$nombre'. Valores validos: compiladores, vscode, todos, ninguno."
         }
-    }
-    
-    if (-not $success) {
-        throw "No se pudo completar la instalacion o actualizacion de paquetes con pacman tras $MaxAttempts intentos."
     }
 }
 
@@ -361,7 +204,7 @@ Write-Host "Nombre del Equipo    : $($env:COMPUTERNAME)"
 Write-Host "Usuario Ejecutor     : $($env:USERNAME)"
 Write-Host "Version PowerShell   : $($PSVersionTable.PSVersion)"
 Write-Host "Ruta de la Carpeta   : $portableRoot"
-Write-Host "Parametros Utilizados: -HomeDirName '$HomeDirName' -ImportHostConfig: $ImportHostConfig"
+Write-Host "Parametros Utilizados: -HomeDirName '$HomeDirName' -ImportHostConfig: $ImportHostConfig -Modulos: $(if ($null -eq $modulosPedidos) { '(preguntar)' } else { ($modulosPedidos -join ',') })"
 Write-Host "Modo de Ejecucion    : $(if ($isUpdateMode) { 'Actualizacion' } else { 'Instalacion/Finalizacion' })"
 Write-Host "======================================================================`n"
 
@@ -369,13 +212,21 @@ try {
     # ==========================================
     # 0. Actualizacion automatica de scripts
     # ==========================================
-    if ($SkipUpdate) {
+    # Una sola vez por ejecucion (P1_SETUP_RELANZADO): si el canal configurado es anterior a los
+    # modulos, el snapshot tampoco los trae y relanzar de nuevo seria un bucle.
+    $archivosRequeridos = @("lib\instalador.ps1", "lib\env.common.psm1", "modulos", "config\versions.json")
+    $faltanArchivosNuevos = ($env:P1_SETUP_RELANZADO -ne "1") -and
+        (@($archivosRequeridos | Where-Object { -not (Test-Path (Join-Path $portableRoot $_)) }).Count -gt 0)
+    if ($SkipUpdate -and $faltanArchivosNuevos) {
+        Write-Host "Faltan archivos del instalador (lib\, modulos\, config\): se descargan aunque se pidio -SkipUpdate." -ForegroundColor Yellow
+    }
+    if ($SkipUpdate -and -not $faltanArchivosNuevos) {
         Write-Host "=== Omitiendo actualizacion de scripts (-SkipUpdate) ===" -ForegroundColor DarkGray
     } else {
         Write-Host "=== Comprobando actualizaciones de los scripts del entorno ===" -ForegroundColor Cyan
         
         $didUpdate = $false
-        $repoOwner = "INGCOM-UNRN-P1"
+        $repoOwner = "INGCOM-UNRN"
     $repoName = "entorno"
     # Canal de actualizacion configurable via .env (ej: CHANNEL=estable-2026c1).
     # Solo aplica a instalaciones standalone; en repos Git rige la rama local.
@@ -394,10 +245,10 @@ try {
     if ($isGitRepo) {
         Write-Host "Repositorio Git detectado. Intentando actualizar via 'git pull'..." -ForegroundColor Cyan
         
+        # Git del entorno (MinGit), el de MSYS2 de instalaciones anteriores o el del sistema
         $gitExe = "git"
-        $msysGit = Join-Path $portableRoot "msys64\usr\bin\git.exe"
-        if (Test-Path $msysGit) {
-            $gitExe = $msysGit
+        foreach ($candidatoGit in @((Join-Path $portableRoot "mingit\cmd\git.exe"), (Join-Path $portableRoot "msys64\usr\bin\git.exe"))) {
+            if (Test-Path $candidatoGit) { $gitExe = $candidatoGit; break }
         }
         
         try {
@@ -468,79 +319,26 @@ try {
                     throw "No se pudo encontrar la carpeta extraida '$repoName-$branch' en el archivo zip."
                 }
                 
-                $filesToCopy = @(
-                    "setup.ps1",
-                    "launch.bat",
-                    "launch.ps1",
-                    "env.common.psm1",
-                    "launch-vscode.bat",
-                    "launch-vscode.ps1",
-                    "clean-shared-host.ps1",
-                    "customize-terminal.ps1",
-                    "customize-terminal.bat",
-                    "package-env.ps1",
-                    "bin/ayuda",
-                    "bin/install-lib.sh",
-                    "bin/build-launcher.sh",
-                    "bin/customize-bash.sh",
-                    "bin/update-env.sh",
-                    "bin/configure-git.sh",
-                    "bin/download-baseline.sh",
-                    "bin/diagnose-env.sh",
-                    "bin/uninstall-lib.sh",
-                    "bin/update-packages.sh",
-                    "bin/smoke.sh",
-                    "smoke.ps1",
-                    "install-offline.ps1",
-                    "bin/nuevo-proyecto",
-                    "bin/ripley",
-                    "config/gdb/gdbinit",
-                    "bin/backup",
-                    "bin/restaurar",
-                    "bin/entregar",
-                    "bin/doctor",
-                    "README.md",
-                    "plan.md",
-                    "GEMINI.md",
-                    "docs/entorno.md",
-                    "docs/casos-de-uso.md",
-                    "docs/scripts.md",
-                    "docs/compilacion-gcc.md",
-                    "docs/images/arquitectura_entorno.svg",
-                    "docs/images/flujo_compilacion.svg",
-                    "linux/activate.sh",
-                    "linux/bootstrap.sh",
-                    "linux/bin/ayuda",
-                    "linux/bin/configure-git.sh",
-                    "linux/bin/customize-terminal.sh",
-                    "linux/bin/install-lib.sh",
-                    "linux/bin/ripley",
-                    "linux/bin/uninstall-lib.sh",
-                    "packages-baseline.txt",
-                    "VERSION",
-                    "versions.json",
-                    "wezterm.lua.template"
-                )
-                
-                foreach ($file in $filesToCopy) {
-                    $srcPath = Join-Path $extractedRepoDir $file
-                    $destPath = Join-Path $portableRoot $file
-                    if (Test-Path $srcPath) {
-                        # Asegurar directorio destino
-                        $parentDir = Split-Path -Parent $destPath
-                        if (-not (Test-Path $parentDir)) {
-                            New-Item -ItemType Directory -Path $parentDir | Out-Null
-                        }
-                        # Copiar archivo
-                        Copy-Item -Path $srcPath -Destination $destPath -Force
-                        # Los scripts PS son ASCII puro: quitar el BOM que traigan versiones anteriores
-                        if ($file -like "*.ps1" -or $file -like "*.psm1") {
-                            $content = [System.IO.File]::ReadAllText($destPath, [System.Text.Encoding]::UTF8)
-                            [System.IO.File]::WriteAllText($destPath, $content, $utf8NoBom)
-                        }
+                # Se copia el snapshot completo del repositorio: solo contiene archivos versionados
+                # (nunca msys64, vscode, python, el HOME portable ni descargas), asi que cualquier
+                # script nuevo llega sin mantener una lista a mano.
+                $extractedRepoFull = (Resolve-Path $extractedRepoDir).Path.TrimEnd('\', '/')
+                foreach ($srcItem in @(Get-ChildItem -Path $extractedRepoFull -Recurse -File -Force)) {
+                    $relativePath = $srcItem.FullName.Substring($extractedRepoFull.Length + 1)
+                    if ($relativePath -like ".github*") { continue }
+                    $destPath = Join-Path $portableRoot $relativePath
+                    $parentDir = Split-Path -Parent $destPath
+                    if (-not (Test-Path $parentDir)) {
+                        New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
+                    }
+                    Copy-Item -Path $srcItem.FullName -Destination $destPath -Force
+                    # Los scripts PS son ASCII puro: quitar el BOM que traigan versiones anteriores
+                    if ($relativePath -like "*.ps1" -or $relativePath -like "*.psm1") {
+                        $content = [System.IO.File]::ReadAllText($destPath, [System.Text.Encoding]::UTF8)
+                        [System.IO.File]::WriteAllText($destPath, $content, $utf8NoBom)
                     }
                 }
-                
+
                 Write-Host "Actualizacion de scripts completada con exito.`n" -ForegroundColor Green
                 $didUpdate = $true
             } catch {
@@ -562,22 +360,65 @@ try {
         $newArgs = @{
             SkipUpdate = $true
         }
-        if ($HomeDirName -ne "home") { 
-            $newArgs["HomeDirName"] = $HomeDirName 
-        }
-        if ($ImportHostConfig) { 
-            $newArgs["ImportHostConfig"] = $true 
-        }
+        if ($HomeDirName -ne "home") { $newArgs["HomeDirName"] = $HomeDirName }
+        if ($ImportHostConfig) { $newArgs["ImportHostConfig"] = $true }
+        if ($Yes) { $newArgs["Yes"] = $true }
+        if ($Latest) { $newArgs["Latest"] = $true }
+        if ($PSBoundParameters.ContainsKey('Modulos')) { $newArgs["Modulos"] = $Modulos }
+        if ($SinImagen) { $newArgs["SinImagen"] = $true }
         
         $localSetup = Join-Path $portableRoot "setup.ps1"
+        $env:P1_SETUP_RELANZADO = "1"
         & $localSetup @newArgs
-        exit $LASTEXITCODE
+        # Si la ejecucion interna fallo, su error llega hasta aca y lo atiende el trap
+        $script:instalacionOk = $true
+        exit 0
     }
 }
 
-# Escribir archivo de configuracion .env local
-    $envFilePath = Join-Path $portableRoot ".env"
-    Set-Content -Path $envFilePath -Value ('set "HOME_DIR_NAME={0}"' -f $HomeDirName)
+if (-not (Test-Path $libPath)) {
+    throw "Falta $libPath. Volve a descargar el entorno completo (o ejecuta setup.ps1 sin -SkipUpdate)."
+}
+. $libPath
+Import-Module (Join-Path $portableRoot "lib\env.common.psm1") -Force
+
+# La raiz del repositorio se reorganizo: la autoactualizacion copia los archivos en su lugar
+# nuevo pero no borra los viejos. En instalaciones sin git se quitan las copias obsoletas de
+# la raiz (solo si ya existe la nueva); en un repositorio git eso lo resuelve git pull.
+if (-not (Test-Path (Join-Path $portableRoot ".git"))) {
+    $archivosMovidos = [ordered]@{
+        "env.common.psm1"           = "lib\env.common.psm1"
+        "versions.json"             = "config\versions.json"
+        "packages-baseline.txt"     = "config\packages-compiladores.txt"
+        "wezterm.lua.template"      = "config\wezterm.lua.template"
+        "clean-shared-host.ps1"     = "herramientas\clean-shared-host.ps1"
+        "customize-terminal.ps1"    = "herramientas\customize-terminal.ps1"
+        "fix-antivirus.ps1"         = "herramientas\fix-antivirus.ps1"
+        "package-env.ps1"           = "herramientas\package-env.ps1"
+        "smoke.ps1"                 = "herramientas\smoke.ps1"
+        "plan.md"                   = "docs\desarrollo\plan.md"
+        "mejoras-y-problemas.md"    = "docs\desarrollo\mejoras-y-problemas.md"
+    }
+    foreach ($viejo in $archivosMovidos.Keys) {
+        $rutaVieja = Join-Path $portableRoot $viejo
+        if ((Test-Path $rutaVieja) -and (Test-Path (Join-Path $portableRoot $archivosMovidos[$viejo]))) {
+            Remove-Item -Path $rutaVieja -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+# Manifiesto de versiones por cuatrimestre (config\versions.json); -Latest lo ignora
+$pinnedVersions = Read-VersionManifest -Path (Join-Path $portableRoot "config\versions.json") -Latest:$Latest
+
+# Escribir archivo de configuracion .env local. Se reemplaza solo HOME_DIR_NAME: el resto de
+# las claves (por ejemplo CHANNEL, el canal de actualizacion) se conserva.
+$envFilePath = Join-Path $portableRoot ".env"
+$envLines = @()
+if (Test-Path $envFilePath) {
+    $envLines = @(Get-Content $envFilePath | Where-Object { $_ -notmatch 'HOME_DIR_NAME=' })
+}
+$envLines = @(('set "HOME_DIR_NAME={0}"' -f $HomeDirName)) + $envLines
+Set-Content -Path $envFilePath -Value $envLines
 
 # Asegurar que el archivo .env, el directorio personalizado y la carpeta descargas esten excluidos en .gitignore
 $gitignorePath = Join-Path $portableRoot ".gitignore"
@@ -595,7 +436,7 @@ if (Test-Path $gitignorePath) {
     }
 }
 
-Write-Host "=== Entorno Portable de Desarrollo C + Python + VS Code ===" -ForegroundColor Cyan
+Write-Host "=== Entorno Portable de Desarrollo C + Python (instalacion base) ===" -ForegroundColor Cyan
 if ($isUpdateMode) {
     Write-Host ">>> MODO ACTUALIZACION: Se detecto una instalacion previa completa. <<<" -ForegroundColor Green
 } else {
@@ -634,6 +475,7 @@ if ($hasSpaces -or $hasNonAscii -or $hasSyncFolder) {
         $choice = Read-Host "Deseas continuar con la instalacion de todas formas? (s/n)"
         if ($choice -notmatch "^[sS]$") {
             Write-Host "Instalacion cancelada." -ForegroundColor Red
+            Wait-FinSetup
             return
         }
         Write-Host "Continuando con la instalacion bajo riesgo del usuario...`n" -ForegroundColor Yellow
@@ -649,18 +491,8 @@ if (-not (Test-Path $homeDir)) {
 # ==========================================
 # 0.5 Preflight de recursos
 # ==========================================
-# Espacio en disco: la instalacion completa requiere ~4 GB libres.
-try {
-    $driveName = ($portableRoot.Substring(0, 2)).TrimEnd('\')
-    $drive = Get-PSDrive -Name $driveName[0] -ErrorAction Stop
-    if ($drive.Free -lt 4GB) {
-        $freeGb = [math]::Round($drive.Free / 1GB, 2)
-        throw "Espacio insuficiente en ${driveName}: hay ${freeGb} GB libres y se necesitan al menos 4 GB."
-    }
-    Write-Host "[OK] Espacio en disco suficiente ($([math]::Round($drive.Free / 1GB, 1)) GB libres)." -ForegroundColor DarkGray
-} catch [System.Management.Automation.PSInvalidOperationException] {
-    Write-Warning "No se pudo verificar el espacio en disco para '$portableRoot'. Continuando..."
-} 
+# Espacio en disco para la base; cada modulo verifica lo suyo antes de descargar.
+Assert-FreeSpace -Path $portableRoot -RequiredGB 2 -Context "la instalacion base"
 # Rutas largas: msys64 agrega profundidad significativa; el limite clasico es 260 caracteres.
 if ($portableRoot.Length -gt 100) {
     Write-Warning ("La ruta de instalacion tiene {0} caracteres y puede exceder el limite clasico de 260 al extraer MSYS2." -f $portableRoot.Length)
@@ -681,6 +513,30 @@ if (-not (Test-Path $bashrcPath)) {
 
 if (-not (Test-Path $descargasDir)) {
     New-Item -ItemType Directory -Path $descargasDir | Out-Null
+}
+
+# ==========================================
+# 0.8 Imagen base precompilada (release)
+# ==========================================
+# En una instalacion nueva, los componentes de la base (MSYS2, MinGit, Python, WezTerm, uv,
+# gh, jonesy, Ripley) llegan en una sola descarga verificada; el resto del setup los
+# encuentra instalados y solo completa la configuracion local. Si la imagen no esta o falla,
+# se sigue componente por componente.
+$imagenMarker = Join-Path $portableRoot ".imagen"
+if (-not $isUpdateMode -and -not $SinImagen -and -not $Latest -and -not (Test-Path (Join-Path $msysDir "usr\bin\bash.exe"))) {
+    try {
+        $imagenRelease = Get-ImagenRelease -Tag (Get-Pinned 'imagen')
+        $imagenUrl = $imagenRelease.Assets[$NombreImagenBase]
+        if (-not $imagenUrl) { throw "el release $($imagenRelease.Tag) no publica $NombreImagenBase" }
+        Write-Host "=== Instalando la imagen base precompilada (release $($imagenRelease.Tag)) ===" -ForegroundColor Cyan
+        Install-ImagenRelease -Url $imagenUrl -PortableRoot $portableRoot -DescargasDir $descargasDir -Componentes $ComponentesImagenBase
+        # El modulo de compiladores usa la capa del mismo release solo sobre esta base
+        Set-Content -Path $imagenMarker -Value $imagenRelease.Tag
+        Write-Host "Imagen base instalada.`n" -ForegroundColor Green
+    } catch {
+        Write-Warning "No se pudo usar la imagen base precompilada ($_). Se instala cada componente por separado."
+        if (Test-Path $imagenMarker) { Remove-Item -Path $imagenMarker -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 # ==========================================
@@ -835,46 +691,29 @@ if ($isUpdateMode -or -not $isMsysComplete) {
     $bashPath = Join-Path $msysDir "usr\bin\bash.exe"
     & $bashPath --login -c "exit"
 
-    # Acelerar la instalacion inicial habilitando descargas paralelas en pacman
+    # Descargas paralelas en pacman: la base no usa pacman, pero el modulo de compiladores si
     & $bashPath --login -c "sed -i -E 's/^#?[[:space:]]*ParallelDownloads.*/ParallelDownloads = 5/' /etc/pacman.conf"
 
-    # Espejo regional de pacman: medir latencia contra candidatos (con prioridad
-    # sudamericana para Red UNRN) y configurar el mas rapido como primera opcion.
-    $null = Select-PacmanMirrorByLatency -MsysDir $msysDir
-
-    # Resolver la ruta de cache local y pasarla a pacman utilizando el ejecutable cygpath nativo
-    $cygpathExe = Join-Path $msysDir "usr\bin\cygpath.exe"
-    $unixCacheDir = & $cygpathExe -u "$descargasDir/pacman_cache"
-    $unixCacheDir = $unixCacheDir.Trim()
-
-    Write-Host "Sincronizando base de datos de pacman y actualizando paquetes del sistema..." -ForegroundColor Cyan
-    try {
-        Invoke-PacmanWithRetry -BashPath $bashPath -Arguments "-Syu --noconfirm --cachedir '$unixCacheDir'"
-    } catch {
-        Write-Warning "No se pudo sincronizar o actualizar pacman (posiblemente sin internet). Intentando instalar paquetes locales..."
-    }
-
-    Write-Host "Consolidando actualizaciones del entorno..." -ForegroundColor Cyan
-    try {
-        Invoke-PacmanWithRetry -BashPath $bashPath -Arguments "-Su --noconfirm --cachedir '$unixCacheDir'"
-    } catch {
-        Write-Warning "Fallo al consolidar actualizaciones (posiblemente sin internet)."
-    }
-
-    # ==========================================
-    # 3. Instalacion de Clang y Python
-    # ==========================================
-    # Lista unica de paquetes mantenida en packages-baseline.txt
-    # (compartida con bin/download-baseline.sh; admite comentarios con #)
-    $pkgFile = Join-Path $portableRoot "packages-baseline.txt"
-    if (-not (Test-Path $pkgFile)) {
-        throw "No se encontro packages-baseline.txt en la raiz del entorno."
-    }
-    $packages = @(Get-Content -Path $pkgFile | ForEach-Object { ($_ -split '#')[0].Trim() } | Where-Object { $_ })
-
-    $pkgString = $packages -join " "
-    Write-Host "Instalando compiladores, herramientas de compilacion, Python y librerias comunes..." -ForegroundColor Cyan
-    Invoke-PacmanWithRetry -BashPath $bashPath -Arguments "-S --needed --noconfirm --cachedir '$unixCacheDir' $pkgString"
+    # La capa precompilada de compiladores solo es coherente sobre la base exacta de su imagen.
+    # Cualquier transaccion de pacman (update-packages.sh, el modulo, un pacman manual) cambia
+    # esa base: este hook borra .imagen para que el modulo ya no aplique la capa y use pacman.
+    $hooksDir = Join-Path $msysDir "etc\pacman.d\hooks"
+    New-Item -ItemType Directory -Force -Path $hooksDir | Out-Null
+    $hookImagen = @(
+        "# Entorno P1: si pacman modifica MSYS2, la capa precompilada de compiladores ya no aplica.",
+        "[Trigger]",
+        "Operation = Install",
+        "Operation = Upgrade",
+        "Operation = Remove",
+        "Type = Package",
+        "Target = *",
+        "",
+        "[Action]",
+        "Description = Entorno P1: la base de MSYS2 cambio, se descarta la capa precompilada de compiladores",
+        "When = PostTransaction",
+        "Exec = /usr/bin/bash -c 'rm -f `"`$(dirname `"`$(cygpath -m /)`")/.imagen`"'"
+    ) -join "`n"
+    [System.IO.File]::WriteAllText((Join-Path $hooksDir "p1-entorno-imagen.hook"), $hookImagen + "`n", $utf8NoBom)
 
     # Configurar alias en el HOME portable
     $bashrcPath = Join-Path $homeDir ".bashrc"
@@ -887,7 +726,7 @@ if ($isUpdateMode -or -not $isMsysComplete) {
         $customAliases = @(
             "# === Portable Dev Environment Aliases ===",
             "alias python='python3'",
-            "alias pip='pip3'",
+            # pip y pip3 no son alias: son comandos de bin\ (python3 -m pip), portables
             "alias make='mingw32-make'",
             "alias ll='ls -alF --color=auto'",
             "export PS1='\[\e[32m\]\u@portable \[\e[33m\]\w\[\e[0m\]\n$ '"
@@ -931,279 +770,221 @@ if ($isUpdateMode -or -not $isMsysComplete) {
     }
     Set-Content -Path (Join-Path $portableRoot ".msys_complete") -Value "Complete"
 } else {
-    Write-Host "[Actualizacion] MSYS2 y herramientas de desarrollo ya configuradas. Se omite pacman para agilizar la ejecucion." -ForegroundColor Green
-}
-
-# Garantizar que make.exe exista como ejecutable nativo en ucrt64/bin (ademas del alias interactivo)
-$mingwMakeExe = Join-Path $msysDir "ucrt64\bin\mingw32-make.exe"
-$makeExe = Join-Path $msysDir "ucrt64\bin\make.exe"
-if ((Test-Path $mingwMakeExe) -and -not (Test-Path $makeExe)) {
-    Copy-Item -Path $mingwMakeExe -Destination $makeExe -Force
+    Write-Host "[Actualizacion] Base de MSYS2 ya configurada." -ForegroundColor Green
 }
 
 # ==========================================
-# 4. Gestion e Instalacion de VS Code Portable
+# 3. uv y Python (base: las herramientas de la catedra son Python)
 # ==========================================
-$vscodeZipUrl = "https://code.visualstudio.com/sha/download?build=stable&os=win32-x64-archive"
-$isCodeInstalled = Test-Path (Join-Path $vscodeDir "Code.exe")
-$isCodeComplete = Test-Path (Join-Path $portableRoot ".vscode_complete")
+# uv se instala como binario standalone (no depende de pacman ni del modulo de
+# compiladores) y administra el Python de la base. Todo queda dentro del entorno:
+# uv.exe en bin\, el interprete en python\ y la cache en descargas\uv_cache, sin
+# registrar nada en el sistema (Set-PortableUvEnvironment en lib\env.common.psm1).
+Set-PortableUvEnvironment -PortableRoot $portableRoot
+$uvExe = Join-Path $portableRoot "bin\uv.exe"
+$uvVersionFile = Join-Path $portableRoot "bin\.uv_version"
+$uvAssetName = "uv-x86_64-pc-windows-msvc.zip"
 
-# Resolver la URL de redireccion final de VS Code
-$resolvedVscodeUrl = $vscodeZipUrl
-$vscodePinned = Get-Pinned 'vscode'
-if ($vscodePinned) {
-    $resolvedVscodeUrl = $vscodePinned
-    Write-Host "VS Code fijado por el manifiesto de versiones." -ForegroundColor DarkGray
-}
-if ($isUpdateMode -or -not $isCodeComplete) {
-    if (-not $vscodePinned) {
-    try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $request = [System.Net.WebRequest]::Create($vscodeZipUrl)
-        $request.Method = "HEAD"
-        $request.AllowAutoRedirect = $false
-        $request.Timeout = 10000
-        $response = $request.GetResponse()
-        $resolvedVscodeUrl = $response.Headers["Location"]
-        $response.Close()
-        if ([string]::IsNullOrEmpty($resolvedVscodeUrl)) {
-            $resolvedVscodeUrl = $vscodeZipUrl
-        }
-    } catch {
+$uvDownloadUrl = $null
+if ($isUpdateMode -or $Latest -or -not (Test-Path $uvExe)) {
+    $uvDownloadUrl = Get-Pinned 'uv'
+    if ($uvDownloadUrl) {
+        Write-Host "uv fijado por el manifiesto de versiones." -ForegroundColor DarkGray
+    } else {
         try {
-            $request = [System.Net.WebRequest]::Create($vscodeZipUrl)
-            $request.Method = "GET"
-            $request.AllowAutoRedirect = $false
-            $request.Timeout = 10000
-            $response = $request.GetResponse()
-            $resolvedVscodeUrl = $response.Headers["Location"]
-            $response.Close()
-            if ([string]::IsNullOrEmpty($resolvedVscodeUrl)) {
-                $resolvedVscodeUrl = $vscodeZipUrl
+            $uvRelease = Get-GitHubApiCached -Url "https://api.github.com/repos/astral-sh/uv/releases/latest"
+            $uvAsset = $uvRelease.assets | Where-Object { $_.name -eq $uvAssetName } | Select-Object -First 1
+            if ($uvAsset) {
+                $uvDownloadUrl = $uvAsset.browser_download_url
+                Write-Host "Ultima version detectada de uv: $($uvRelease.tag_name)" -ForegroundColor Green
             }
         } catch {
-            Write-Warning "No se pudo resolver la URL final de redireccion de VS Code. Se usara la URL directa."
+            Write-Warning "Fallo al consultar la API de GitHub para uv. Usando fallback fijo."
+        }
+        if (-not $uvDownloadUrl) {
+            $uvDownloadUrl = Get-Pinned 'uv_fallback'
         }
     }
-    } # fin if (-not $vscodePinned)
 }
 
-if (-not $isUpdateMode -and $isCodeComplete -and $isCodeInstalled) {
-    Write-Host "VS Code ya se encuentra instalado y configurado de una ejecucion previa." -ForegroundColor Green
+$installedUvUrl = ""
+if (Test-Path $uvVersionFile) { $installedUvUrl = (Get-Content $uvVersionFile -Raw).Trim() }
+
+if ((Test-Path $uvExe) -and (-not $uvDownloadUrl -or $uvDownloadUrl -eq $installedUvUrl)) {
+    Write-Host "uv ya esta instalado en bin\uv.exe." -ForegroundColor Green
+} elseif (-not $uvDownloadUrl) {
+    throw "No se pudo resolver la URL de descarga de uv (sin API de GitHub ni 'uv_fallback' en versions.json)."
 } else {
-    $shouldInstallOrUpdateVscode = $false
-    if ($isUpdateMode) {
-        $installedVscodeVersionFile = Join-Path $vscodeDir ".version"
-        $installedVscodeUrl = ""
-        if (Test-Path $installedVscodeVersionFile) {
-            $installedVscodeUrl = (Get-Content $installedVscodeVersionFile -Raw).Trim()
+    Write-Host "Descargando uv desde $uvDownloadUrl..." -ForegroundColor Cyan
+    $uvZipPath = Join-Path $descargasDir $uvAssetName
+    $uvExtractDir = Join-Path $descargasDir "uv_extract"
+    try {
+        Invoke-DownloadWithRetry -Url $uvDownloadUrl -OutFile $uvZipPath
+        # Astral publica la suma de cada artefacto junto al archivo (<archivo>.sha256)
+        $uvShaPath = "$uvZipPath.sha256"
+        Invoke-DownloadWithRetry -Url "$uvDownloadUrl.sha256" -OutFile $uvShaPath
+        $uvExpected = ((Get-Content $uvShaPath -Raw).Trim() -split '\s+')[0].ToLower()
+        $uvActual = (Get-FileHash -Path $uvZipPath -Algorithm SHA256).Hash.ToLower()
+        Remove-Item -Path $uvShaPath -Force -ErrorAction SilentlyContinue
+        if ($uvExpected -notmatch '^[0-9a-f]{64}$' -or $uvActual -ne $uvExpected) {
+            throw "La suma SHA-256 de $uvAssetName no coincide con la publicada (esperada: $uvExpected; descargada: $uvActual)."
         }
-        
-        if ($resolvedVscodeUrl -ne $installedVscodeUrl) {
-            Write-Host "Hay una nueva version de VS Code disponible para actualizar (o no pudo verificarse la version local)." -ForegroundColor Yellow
-            if ($Yes -or ((Read-Host "Deseas descargar e instalar la actualizacion de VS Code? (s/n)") -match "^[sS]$")) {
-                $shouldInstallOrUpdateVscode = $true
-                if ($Yes) { Write-Host "(--Yes) Actualizando VS Code automaticamente..." -ForegroundColor DarkGray }
-            } else {
-                Write-Host "Omitiendo actualizacion de VS Code." -ForegroundColor DarkGray
-            }
-        } else {
-            Write-Host "VS Code ya se encuentra en la version mas reciente ($resolvedVscodeUrl)." -ForegroundColor Green
+        if (Test-Path $uvExtractDir) { Remove-Item -Path $uvExtractDir -Recurse -Force }
+        Expand-Archive -Path $uvZipPath -DestinationPath $uvExtractDir -Force
+        $uvBinDir = Join-Path $portableRoot "bin"
+        foreach ($uvBin in @("uv.exe", "uvx.exe", "uvw.exe")) {
+            $uvSrc = Get-ChildItem -Path $uvExtractDir -Recurse -Filter $uvBin | Select-Object -First 1
+            if ($uvSrc) { Copy-Item -Path $uvSrc.FullName -Destination (Join-Path $uvBinDir $uvBin) -Force }
         }
-    } else {
-        $shouldInstallOrUpdateVscode = $true
+        if (-not (Test-Path $uvExe)) { throw "El ZIP de uv no contiene uv.exe." }
+        Set-Content -Path $uvVersionFile -Value $uvDownloadUrl
+        Write-Host "uv instalado en bin\uv.exe ($((& $uvExe --version) -join ' '))." -ForegroundColor Green
+    } finally {
+        if (Test-Path $uvExtractDir) { Remove-Item -Path $uvExtractDir -Recurse -Force -ErrorAction SilentlyContinue }
+        if (Test-Path $uvZipPath) { Remove-Item -Path $uvZipPath -Force -ErrorAction SilentlyContinue }
     }
+}
 
-    if ($shouldInstallOrUpdateVscode) {
-        if (-not $isUpdateMode -and $isCodeInstalled) {
-            Write-Host "Se detecto una instalacion previa incompleta de VS Code. Se intentara continuar con la configuracion..." -ForegroundColor Yellow
-            $dataDir = Join-Path $vscodeDir "data"
-            $userSettingsDir = Join-Path $dataDir "user-data\User"
-            $settingsJsonPath = Join-Path $userSettingsDir "settings.json"
-            if (-not (Test-Path $settingsJsonPath)) {
-                if (-not (Test-Path $userSettingsDir)) {
-                    New-Item -ItemType Directory -Path $userSettingsDir -Force | Out-Null
-                }
-                $defaultSettings = @{
-                    "telemetry.telemetryLevel" = "off"
-                    "update.mode" = "none"
-                    "extensions.autoUpdate" = $false
-                    "chat.disableAIFeatures" = $true
-                    "github.copilot.enable" = @{
-                        "*" = $false
-                    }
-                    "terminal.integrated.profiles.windows" = @{
-                        "UCRT64 Bash" = @{
-                            "path" = "bash.exe"
-                            "args" = @("--login", "-i")
-                        }
-                    }
-                    "terminal.integrated.defaultProfile.windows" = "UCRT64 Bash"
-                } | ConvertTo-Json -Depth 10
-                Set-Content -Path $settingsJsonPath -Value $defaultSettings
-            }
-        } else {
-            # Resolver nombre de archivo de forma dinamica e identificar version
-            $vscodeZipName = Get-FileNameFromUrl -Url $resolvedVscodeUrl -DefaultName "vscode_archive.zip"
-            $vscodeZipPath = Join-Path $descargasDir $vscodeZipName
-
-            $vscodeZipValid = $false
-            if (Test-Path $vscodeZipPath) {
-                Write-Host "Se detecto una descarga previa de VS Code ($vscodeZipName). Verificando..." -ForegroundColor Yellow
-                try {
-                    $fileSize = (Get-Item $vscodeZipPath).Length
-                    if ($fileSize -gt 50MB) {
-                        # Verificacion activa: si existe el hash registrado de una descarga previa, compararlo
-                        $sidecar = "$vscodeZipPath.sha256"
-                        if (Test-Path $sidecar) {
-                            $expectedHash = (Get-Content $sidecar -Raw).Trim()
-                            $actualHash = (Get-FileHash -Path $vscodeZipPath -Algorithm SHA256).Hash
-                            if ($actualHash -ne $expectedHash) {
-                                Write-Host "El ZIP previo de VS Code esta corrupto (SHA256 no coincide). Se volvera a descargar." -ForegroundColor Yellow
-                            } else {
-                                $vscodeZipValid = $true
-                                Write-Host "El archivo ZIP previo es valido (SHA256 verificado)." -ForegroundColor Green
-                            }
-                        } else {
-                            $vscodeZipValid = $true
-                            Write-Host "El archivo ZIP previo es valido (sin hash previo registrado)." -ForegroundColor Green
-                        }
-                    } else {
-                        Write-Host "El archivo ZIP previo esta incompleto o danado. Se volvera a descargar." -ForegroundColor Yellow
-                    }
-                } catch {
-                    Write-Host "No se pudo verificar el archivo ZIP previo. Se volvera a descargar." -ForegroundColor Yellow
-                }
-            }
-            
-            if (-not $vscodeZipValid) {
-                Write-Host "Descargando VS Code desde $resolvedVscodeUrl..." -ForegroundColor Cyan
-                Invoke-DownloadWithRetry -Url $resolvedVscodeUrl -OutFile $vscodeZipPath
-                (Get-FileHash -Path $vscodeZipPath -Algorithm SHA256).Hash | Set-Content -Path "$vscodeZipPath.sha256"
-            }
-            
-            $backupDataDir = Join-Path $portableRoot "vscode_data_backup"
-            $dataDir = Join-Path $vscodeDir "data"
-            $extractTemp = Join-Path $descargasDir "vscode_extract"
-
-            # Actualizacion atomica: se extrae y valida en un directorio temporal
-            # antes de tocar la instalacion vigente; ante cualquier fallo se restaura el respaldo.
-            try {
-                if (Test-Path $extractTemp) {
-                    Remove-Item -Path $extractTemp -Recurse -Force -ErrorAction SilentlyContinue
-                }
-                New-Item -ItemType Directory -Path $extractTemp | Out-Null
-
-                Write-Host "Extrayendo VS Code a directorio temporal..." -ForegroundColor Cyan
-                Expand-Archive -Path $vscodeZipPath -DestinationPath $extractTemp -Force
-                if (-not (Test-Path (Join-Path $extractTemp "Code.exe"))) {
-                    throw "El ZIP extraido no contiene Code.exe; se cancela el reemplazo de la instalacion vigente."
-                }
-
-                if ((Test-Path $dataDir)) {
-                    Write-Host "Respaldando carpeta data de VS Code..." -ForegroundColor Cyan
-                    if (Test-Path $backupDataDir) {
-                        Remove-Item -Path $backupDataDir -Recurse -Force -ErrorAction SilentlyContinue
-                    }
-                    Move-Item -Path $dataDir -Destination $backupDataDir -Force
-                }
-
-                if (Test-Path $vscodeDir) {
-                    Write-Host "Reemplazando instalacion anterior de VS Code..." -ForegroundColor Cyan
-                    Remove-Item -Path $vscodeDir -Recurse -Force -ErrorAction SilentlyContinue
-                }
-                Move-Item -Path $extractTemp -Destination $vscodeDir
-
-                if (Test-Path $backupDataDir) {
-                    Write-Host "Restaurando carpeta data..." -ForegroundColor Cyan
-                    Move-Item -Path $backupDataDir -Destination $dataDir -Force
-                } else {
-                # Activar el Modo Portable creando la carpeta 'data'
-                $userSettingsDir = Join-Path $dataDir "user-data\User"
-                if (-not (Test-Path $userSettingsDir)) {
-                    New-Item -ItemType Directory -Path $userSettingsDir | Out-Null
-                }
-                
-                # Escribir configuracion inicial de settings.json para aislar telemetria y configurar bash
-                $settingsJsonPath = Join-Path $userSettingsDir "settings.json"
-                $defaultSettings = @{
-                    "telemetry.telemetryLevel" = "off"
-                    "update.mode" = "none"
-                    "extensions.autoUpdate" = $false
-                    "chat.disableAIFeatures" = $true
-                    "github.copilot.enable" = @{
-                        "*" = $false
-                    }
-                    "terminal.integrated.profiles.windows" = @{
-                        "UCRT64 Bash" = @{
-                            "path" = "bash.exe"
-                            "args" = @("--login", "-i")
-                        }
-                    }
-                    "terminal.integrated.defaultProfile.windows" = "UCRT64 Bash"
-                } | ConvertTo-Json -Depth 10
-                
-                Set-Content -Path $settingsJsonPath -Value $defaultSettings
-                }
-            } catch {
-                Write-Warning "Fallo durante la actualizacion de VS Code: $_"
-                # Rollback: si el respaldo existe y la data no fue restaurada, reconstruir
-                if ((Test-Path $backupDataDir) -and (-not (Test-Path $dataDir))) {
-                    Write-Host "Restaurando respaldo de datos de VS Code tras el fallo..." -ForegroundColor Yellow
-                    if (-not (Test-Path $vscodeDir)) {
-                        New-Item -ItemType Directory -Path $vscodeDir -Force | Out-Null
-                    }
-                    Move-Item -Path $backupDataDir -Destination $dataDir -Force
-                }
-                throw
-            } finally {
-                if (Test-Path $extractTemp) {
-                    Remove-Item -Path $extractTemp -Recurse -Force -ErrorAction SilentlyContinue
-                }
-            }
+# Python de la base: version menor fijada en versions.json ("python"), 3.12 por defecto.
+$pythonVersion = Get-Pinned 'python'
+if (-not $pythonVersion) { $pythonVersion = "3.12" }
+$pythonRoot = Join-Path $portableRoot "python"
+$pythonDir = Get-PortablePythonDir -PortableRoot $portableRoot
+if ($isUpdateMode -or -not $pythonDir) {
+    Write-Host "Instalando/verificando Python $pythonVersion con uv..." -ForegroundColor Cyan
+    & $uvExe python install $pythonVersion
+    if ($LASTEXITCODE -ne 0) {
+        throw "uv no pudo instalar Python $pythonVersion (codigo $LASTEXITCODE)."
+    }
+    # Registrar la carpeta real del interprete (no la junction por version menor, que guarda
+    # una ruta absoluta): el entorno sigue funcionando si se mueve de carpeta o de unidad.
+    $pythonDir = $null
+    $versionPattern = '^cpython-' + [regex]::Escape($pythonVersion) + '\.(\d+)'
+    $bestPatch = -1
+    foreach ($dir in @(Get-ChildItem -Path $pythonRoot -Directory -Filter "cpython-*" -ErrorAction SilentlyContinue)) {
+        if ($dir.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { continue }
+        if (-not (Test-Path (Join-Path $dir.FullName "python.exe"))) { continue }
+        if ($dir.Name -match $versionPattern -and [int]$Matches[1] -gt $bestPatch) {
+            $bestPatch = [int]$Matches[1]
+            $pythonDir = $dir.FullName
         }
-        
-        Set-Content -Path (Join-Path $vscodeDir ".version") -Value $resolvedVscodeUrl
-        Set-Content -Path (Join-Path $portableRoot ".vscode_complete") -Value "Complete"
-        Write-Host "VS Code Portable configurado/actualizado con exito." -ForegroundColor Green
+    }
+    if (-not $pythonDir) {
+        throw "uv termino sin errores pero no se encontro python.exe en $pythonRoot."
+    }
+    Set-Content -Path (Join-Path $pythonRoot "ACTUAL") -Value (Split-Path $pythonDir -Leaf)
+}
+Write-Host "Python de la base: $pythonDir" -ForegroundColor Green
+$pythonExe = Join-Path $pythonDir "python.exe"
+
+# 'python3' es el nombre que usan los scripts de bin\ (ripley, verificar, etc.)
+$python3Exe = Join-Path $pythonDir "python3.exe"
+if (-not (Test-Path $python3Exe)) { Copy-Item -Path $pythonExe -Destination $python3Exe -Force }
+
+# Es el Python propio del entorno: pip debe poder instalar paquetes del alumno en el.
+$externallyManaged = Join-Path $pythonDir "Lib\EXTERNALLY-MANAGED"
+if (Test-Path $externallyManaged) { Remove-Item -Path $externallyManaged -Force }
+if ((Invoke-NativeQuiet -FilePath $pythonExe -ArgumentList @("-m", "pip", "--version")) -ne 0) {
+    Write-Host "Habilitando pip en el Python de la base..." -ForegroundColor Cyan
+    & $pythonExe -m ensurepip --upgrade
+    if ($LASTEXITCODE -ne 0) { Write-Warning "No se pudo habilitar pip (ensurepip). 'uv pip' sigue disponible." }
+}
+
+# Dependencias de las herramientas de la catedra (Ripley necesita typer y rich)
+$requirementsBase = Join-Path $portableRoot "config\requirements-base.txt"
+if (Test-Path $requirementsBase) {
+    Write-Host "Instalando dependencias Python de la base (config\requirements-base.txt)..." -ForegroundColor Cyan
+    & $uvExe pip install --python $pythonExe --break-system-packages -r $requirementsBase
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "No se pudieron instalar las dependencias Python de la base (codigo $LASTEXITCODE). Ripley no va a funcionar hasta reintentar setup.ps1."
     }
 }
 
 # ==========================================
-# 5. Instalacion de Extensiones de VS Code
+# 3.5 Git (MinGit)
 # ==========================================
-$codeCmd = Join-Path $vscodeDir "bin\code.cmd"
-if (Test-Path $codeCmd) {
-    if ($isUpdateMode -or -not $isCodeComplete) {
-        Write-Host "Verificando e instalando extensiones de VS Code..." -ForegroundColor Cyan
-        # Versiones pineadas en versions.json (campo "extensiones": id -> version o null)
-        $extensions = @(
-            "ms-vscode.cpptools",
-            "ms-vscode.cpptools-extension-pack",
-            "ms-vscode.cmake-tools",
-            "ms-vscode.makefile-tools",
-            "ms-python.python",
-            "GitHub.vscode-pull-request-github",
-            "bierner.github-markdown-preview"
-        )
-        if ($null -ne $pinnedVersions) {
-            $extProp = $pinnedVersions.PSObject.Properties['extensiones']
-            if ($extProp) {
-                $pinnedExts = @($extProp.Value.PSObject.Properties | ForEach-Object {
-                    if ($_.Value -is [string] -and $_.Value.Trim()) { "$($_.Name)@$($_.Value.Trim())" } else { $_.Name }
-                })
-                if ($pinnedExts.Count -gt 0) { $extensions = $pinnedExts }
+# MinGit es la distribucion minima de Git for Windows pensada para uso en consola: un
+# zip autocontenido, sin instalador ni pacman. Reemplaza al git de MSYS2 para que la base
+# no tenga que sincronizar ni actualizar pacman. Va en mingit\ y su carpeta cmd\ entra
+# al PATH de la sesion (lib\env.common.psm1). Como es un git nativo de Windows, uv
+# ('uv tool install git+...') y VS Code lo usan directamente.
+$mingitDir = Join-Path $portableRoot "mingit"
+$mingitExe = Join-Path $mingitDir "cmd\git.exe"
+$mingitVersionFile = Join-Path $mingitDir ".version"
+
+$mingitUrl = $null
+$mingitExpected = $null
+if ($isUpdateMode -or $Latest -or -not (Test-Path $mingitExe)) {
+    $mingitUrl = Get-Pinned 'mingit'
+    if ($mingitUrl) {
+        $mingitExpected = Get-Pinned 'mingit_sha256'
+        Write-Host "MinGit fijado por el manifiesto de versiones." -ForegroundColor DarkGray
+    } else {
+        try {
+            $gitRelease = Get-GitHubApiCached -Url "https://api.github.com/repos/git-for-windows/git/releases/latest"
+            $gitAsset = $gitRelease.assets | Where-Object { $_.name -match '^MinGit-[0-9.]+-64-bit\.zip$' } | Select-Object -First 1
+            if ($gitAsset) {
+                $mingitUrl = $gitAsset.browser_download_url
+                # La API de GitHub publica la suma de cada artefacto como "sha256:<hex>"
+                if ($gitAsset.digest -and $gitAsset.digest -match '^sha256:([0-9a-fA-F]{64})$') {
+                    $mingitExpected = $Matches[1]
+                }
+                Write-Host "Ultima version detectada de MinGit: $($gitAsset.name)" -ForegroundColor Green
             }
+        } catch {
+            Write-Warning "Fallo al consultar la API de GitHub para MinGit. Usando fallback fijo."
         }
-        foreach ($ext in $extensions) {
-            Write-Host "Instalando/verificando extension: $ext..."
-            $process = Start-Process -FilePath $codeCmd -ArgumentList "--install-extension", $ext, "--force" -Wait -NoNewWindow -PassThru
-            if ($process.ExitCode -eq 0) {
-                Write-Host "Extension $ext instalada/verificada." -ForegroundColor Green
-            } else {
-                Write-Warning "No se pudo instalar/verificar la extension $ext."
+        if (-not $mingitUrl) {
+            $mingitUrl = Get-Pinned 'mingit_fallback'
+            $mingitExpected = Get-Pinned 'mingit_sha256'
+        }
+    }
+}
+
+$installedMingitUrl = ""
+if (Test-Path $mingitVersionFile) { $installedMingitUrl = (Get-Content $mingitVersionFile -Raw).Trim() }
+
+if ((Test-Path $mingitExe) -and (-not $mingitUrl -or $mingitUrl -eq $installedMingitUrl)) {
+    Write-Host "Git (MinGit) ya esta instalado en mingit\." -ForegroundColor Green
+} elseif (-not $mingitUrl) {
+    throw "No se pudo resolver la URL de descarga de MinGit (sin API de GitHub ni 'mingit_fallback' en versions.json)."
+} else {
+    $mingitZipName = Get-FileNameFromUrl -Url $mingitUrl -DefaultName "MinGit-64-bit.zip"
+    $mingitZipPath = Join-Path $descargasDir $mingitZipName
+    $mingitExtractDir = Join-Path $descargasDir "mingit_extract"
+    try {
+        Write-Host "Descargando MinGit desde $mingitUrl..." -ForegroundColor Cyan
+        Invoke-DownloadWithRetry -Url $mingitUrl -OutFile $mingitZipPath
+        $mingitActual = (Get-FileHash -Path $mingitZipPath -Algorithm SHA256).Hash.ToLower()
+        if ($mingitExpected) {
+            if ($mingitActual -ne $mingitExpected.Trim().ToLower()) {
+                throw "La suma SHA-256 de $mingitZipName no coincide con la publicada (esperada: $($mingitExpected.Trim().ToLower()); descargada: $mingitActual)."
             }
+            Write-Host "Suma SHA-256 de MinGit verificada." -ForegroundColor Green
+        } else {
+            Write-Warning "No hay suma SHA-256 publicada para $mingitZipName (defini 'mingit_sha256' en versions.json para verificarla)."
         }
+
+        # Extraer aparte y reemplazar al final: un fallo no deja un git a medias
+        if (Test-Path $mingitExtractDir) { Remove-Item -Path $mingitExtractDir -Recurse -Force }
+        Expand-Archive -Path $mingitZipPath -DestinationPath $mingitExtractDir -Force
+        if (-not (Test-Path (Join-Path $mingitExtractDir "cmd\git.exe"))) {
+            throw "El ZIP de MinGit no contiene cmd\git.exe."
+        }
+        if (Test-Path $mingitDir) { Remove-Item -Path $mingitDir -Recurse -Force }
+        Move-Item -Path $mingitExtractDir -Destination $mingitDir
+        Set-Content -Path $mingitVersionFile -Value $mingitUrl
+
+        # Configuracion de sistema (queda dentro de mingit\, nunca en el host):
+        # - sin credential manager: guardaria tokens en el Administrador de credenciales de
+        #   Windows del equipo (configure-git.sh usa el de gh, dentro del HOME portable);
+        # - autocrlf=input, igual que el git de MSYS2 al que reemplaza.
+        $null = Invoke-NativeQuiet -FilePath $mingitExe -ArgumentList @("config", "--system", "--unset-all", "credential.helper")
+        $null = Invoke-NativeQuiet -FilePath $mingitExe -ArgumentList @("config", "--system", "core.autocrlf", "input")
+        Write-Host "Git instalado en mingit\ ($((& $mingitExe --version) -join ' '))." -ForegroundColor Green
+    } finally {
+        if (Test-Path $mingitExtractDir) { Remove-Item -Path $mingitExtractDir -Recurse -Force -ErrorAction SilentlyContinue }
+        if (Test-Path $mingitZipPath) { Remove-Item -Path $mingitZipPath -Force -ErrorAction SilentlyContinue }
     }
 }
 
@@ -1649,10 +1430,10 @@ if (-not $isUpdateMode -and $isWezComplete -and $isWezInstalled) {
 
 # Escribir configuracion wezterm.lua a partir de la plantilla canonica unica
 $wezConfigPath = Join-Path $portableRoot "wezterm.lua"
-$wezTemplateFile = Join-Path $portableRoot "wezterm.lua.template"
+$wezTemplateFile = Join-Path $portableRoot "config\wezterm.lua.template"
 if (-not (Test-Path $wezConfigPath) -or $isUpdateMode -or $shouldInstallOrUpdateWez) {
     if (-not (Test-Path $wezTemplateFile)) {
-        throw "No se encontro wezterm.lua.template en la raiz del entorno."
+        throw "No se encontro config\wezterm.lua.template en el entorno."
     }
     $wezConfigContent = Get-Content $wezTemplateFile -Raw
     $wezConfigContent = $wezConfigContent.Replace('@HOME_DIR_NAME@', $HomeDirName)
@@ -1721,6 +1502,68 @@ if ($needsRipleyDownload) {
         Move-Item -Path $ripleyTmpPath -Destination $ripleyPyzPath -Force
         Write-Host "Motor Ripley aprovisionado con exito ($( '{0:N0}' -f ((Get-Item $ripleyPyzPath).Length / 1KB) ) KB)." -ForegroundColor Green
         Write-Host "Probalo con: ripley doctor" -ForegroundColor DarkGray
+    }
+}
+
+# ==========================================
+# 6.8 Modulos opcionales: compiladores y VS Code
+# ==========================================
+# La base ya esta completa. Los modulos son descargas grandes que no todos los contextos
+# necesitan; cada uno es un script independiente (modulos\<nombre>.ps1) que tambien se
+# puede ejecutar despues con instalar-<nombre>.bat.
+$modulosInfo = [ordered]@{
+    "compiladores" = @{ Marker = ".compiladores_complete"; Presente = "msys64\ucrt64\bin\gcc.exe"; Descripcion = "compilador de C y herramientas (gcc, gdb, make, cmake, cppcheck, clang-format)" }
+    "vscode"       = @{ Marker = ".vscode_complete";       Presente = "vscode\Code.exe";             Descripcion = "VS Code portable con las extensiones de C y Python" }
+}
+
+# Migracion: antes de los modulos, .msys_complete significaba "MSYS2 con compiladores".
+$compiladoresMarker = Join-Path $portableRoot ".compiladores_complete"
+if (-not (Test-Path $compiladoresMarker) -and (Test-Path (Join-Path $msysDir "ucrt64\bin\gcc.exe"))) {
+    Set-Content -Path $compiladoresMarker -Value "Complete"
+}
+
+$modulosAEjecutar = @()
+if ($null -ne $modulosPedidos) {
+    $modulosAEjecutar = @($modulosPedidos)
+} else {
+    $interactivo = Test-InteractiveConsole -Yes:$Yes
+    foreach ($nombre in $modulosInfo.Keys) {
+        $info = $modulosInfo[$nombre]
+        if ((Test-Path (Join-Path $portableRoot $info.Marker)) -or (Test-Path (Join-Path $portableRoot $info.Presente))) {
+            # Ya instalado (o a medias, por ejemplo una extension de VS Code que fallo y dejo
+            # el modulo sin marcador): se ejecuta para completar o actualizar
+            $modulosAEjecutar += $nombre
+        } elseif ($isUpdateMode) {
+            Write-Host "Modulo '$nombre' no instalado ($($info.Descripcion)). Se instala con instalar-$nombre.bat." -ForegroundColor DarkGray
+        } elseif (-not $interactivo) {
+            # Desatendido (-Yes, CI): se respeta el comportamiento historico de instalar todo
+            $modulosAEjecutar += $nombre
+        } else {
+            $respuesta = Read-Host "Instalar ahora el modulo '$nombre' - $($info.Descripcion)? (S/n)"
+            if ($respuesta -notmatch '^[nN]') {
+                $modulosAEjecutar += $nombre
+            } else {
+                Write-Host "Modulo '$nombre' omitido. Podes instalarlo cuando quieras con instalar-$nombre.bat." -ForegroundColor DarkGray
+            }
+        }
+    }
+}
+
+foreach ($nombre in $modulosAEjecutar) {
+    $moduloScript = Join-Path $portableRoot "modulos\$nombre.ps1"
+    $moduloArgs = @{ DesdeSetup = $true }
+    if ($nombre -eq "vscode") {
+        $moduloArgs["Yes"] = [bool]$Yes
+        $moduloArgs["Latest"] = [bool]$Latest
+        $moduloArgs["Actualizar"] = [bool]$isUpdateMode
+    }
+    Write-Host "`n=== Modulo: $nombre ===" -ForegroundColor Cyan
+    try {
+        & $moduloScript @moduloArgs
+    } catch {
+        Write-Warning "El modulo '$nombre' fallo: $_"
+        Write-Warning "La base quedo instalada. Reintenta el modulo con instalar-$nombre.bat."
+        $script:modulosFallidos += $nombre
     }
 }
 
@@ -1824,21 +1667,38 @@ if ($ImportHostConfig) {
     # Resumen de componentes para el usuario
     Write-Host "`n--- ESTADO DE COMPONENTES ---" -ForegroundColor Cyan
     $summaryComponents = @(
-        @{ Name = "MSYS2 (GCC, make, cmake, python)"; Ok = (Test-Path (Join-Path $msysDir "usr\bin\bash.exe")) },
-        @{ Name = "VS Code Portable";                 Ok = (Test-Path (Join-Path $vscodeDir "Code.exe")) },
-        @{ Name = "WezTerm";                          Ok = (Test-Path (Join-Path $portableRoot "wezterm\wezterm.exe")) },
-        @{ Name = "GitHub CLI";                       Ok = (Test-Path (Join-Path $portableRoot "bin\gh.exe")) },
-        @{ Name = "Jonesy (IDE Terminal)";            Ok = (Test-Path (Join-Path $portableRoot "bin\jonesy.exe")) }
+        @{ Name = "MSYS2 base (bash)";        Ok = (Test-Path (Join-Path $msysDir "usr\bin\bash.exe")) },
+        @{ Name = "Git (MinGit)";             Ok = (Test-Path (Join-Path $portableRoot "mingit\cmd\git.exe")) },
+        @{ Name = "uv";                       Ok = (Test-Path (Join-Path $portableRoot "bin\uv.exe")) },
+        @{ Name = "Python";                   Ok = [bool](Get-PortablePythonDir -PortableRoot $portableRoot) },
+        @{ Name = "WezTerm";                  Ok = (Test-Path (Join-Path $portableRoot "wezterm\wezterm.exe")) },
+        @{ Name = "GitHub CLI";               Ok = (Test-Path (Join-Path $portableRoot "bin\gh.exe")) },
+        @{ Name = "Jonesy (IDE Terminal)";    Ok = (Test-Path (Join-Path $portableRoot "bin\jonesy.exe")) }
     )
     foreach ($comp in $summaryComponents) {
         $state = if ($comp.Ok) { "[OK]   " } else { "[FALTA]" }
         $color = if ($comp.Ok) { "Green" } else { "Yellow" }
         Write-Host ("  {0} {1}" -f $state, $comp.Name) -ForegroundColor $color
     }
+    Write-Host "  Modulos opcionales:" -ForegroundColor Cyan
+    $summaryModules = @(
+        @{ Name = "compiladores (gcc, gdb, make, cmake)"; Ok = (Test-Path (Join-Path $portableRoot ".compiladores_complete")); Bat = "instalar-compiladores.bat" },
+        @{ Name = "vscode (VS Code portable)";            Ok = (Test-Path (Join-Path $portableRoot ".vscode_complete"));       Bat = "instalar-vscode.bat" }
+    )
+    foreach ($comp in $summaryModules) {
+        if ($comp.Ok) {
+            Write-Host ("  [OK]    {0}" -f $comp.Name) -ForegroundColor Green
+        } else {
+            Write-Host ("  [ -- ]  {0}: no instalado (se instala con {1})" -f $comp.Name, $comp.Bat) -ForegroundColor DarkGray
+        }
+    }
 
     Write-Host "`n=== ENTORNO PORTABLE CONFIGURADO Y LISTO ===" -ForegroundColor Green
     Write-Host "Ejecuta 'launch.bat' para iniciar la consola." -ForegroundColor Green
-    Write-Host "Ejecuta 'launch-vscode.bat' para iniciar VS Code." -ForegroundColor Green
+    if (Test-Path (Join-Path $portableRoot ".vscode_complete")) {
+        Write-Host "Ejecuta 'launch-vscode.bat' para iniciar VS Code." -ForegroundColor Green
+    }
+    $script:instalacionOk = $true
 }
 finally {
     if ($transcriptStarted) {
@@ -1851,4 +1711,13 @@ finally {
             # Ignorar si no esta transcribiendo en este momento
         }
     }
+    # Exito (o modulos con problemas): esperar antes de cerrar. Los errores los atiende el trap.
+    if ($script:instalacionOk) {
+        $avisoModulos = ""
+        if ($script:modulosFallidos.Count -gt 0) {
+            $avisoModulos = "Atencion: no se pudieron instalar los modulos: $($script:modulosFallidos -join ', '). Reintentalos con instalar-<modulo>.bat."
+        }
+        Wait-FinSetup -Mensaje $avisoModulos
+    }
 }
+exit 0

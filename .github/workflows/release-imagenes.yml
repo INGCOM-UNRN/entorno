@@ -1,0 +1,125 @@
+name: release-imagenes
+
+# Arma las imágenes precompiladas del entorno de Windows y las publica en un release:
+#
+#   entorno-base-windows-x64.zip          scripts + base instalada (MSYS2, MinGit, Python, uv,
+#                                         WezTerm, gh, jonesy, Ripley); se descomprime y anda
+#   entorno-compiladores-windows-x64.zip  capa de msys64 con el módulo de compiladores
+#   SHA256SUMS
+#
+# setup.ps1 usa la imagen base en las instalaciones nuevas (una descarga en lugar de una por
+# componente) y el módulo de compiladores usa la capa del mismo release. Se ejecuta al
+# publicar un tag v* o a mano indicando el tag (si el release ya existe, reemplaza las
+# imágenes).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag existente del repositorio (por ejemplo v1.2.0). El release se crea si no existe."
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-imagenes-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  imagenes:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      SALIDA: ${{ github.workspace }}\..\imagenes
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      # -SkipUpdate: la imagen se arma con los scripts de este tag, no con los de main.
+      # -SinImagen: componente por componente (no reutilizar una imagen anterior).
+      - name: Instalar la base
+        timeout-minutes: 30
+        shell: pwsh
+        run: ./setup.ps1 -Yes -SkipUpdate -SinImagen -Modulos ninguno
+
+      # Con MSYS2 al día, el -Syu del módulo no tiene nada que actualizar y la capa de
+      # compiladores queda casi solo con agregados (lo que igual elimine viaja en su lista).
+      - name: Actualizar MSYS2 antes de armar la base
+        timeout-minutes: 20
+        shell: pwsh
+        run: |
+          & ./msys64/usr/bin/bash.exe --login -c "pacman -Syu --noconfirm"
+          & ./msys64/usr/bin/bash.exe --login -c "pacman -Su --noconfirm"
+
+      - name: Armar la imagen base
+        timeout-minutes: 20
+        shell: pwsh
+        run: ./herramientas/construir-imagenes.ps1 -Etapa base -Salida $env:SALIDA
+
+      - name: Instalar el módulo de compiladores
+        timeout-minutes: 40
+        shell: pwsh
+        run: ./modulos/compiladores.ps1 -SinImagen
+
+      - name: Armar la capa de compiladores
+        timeout-minutes: 20
+        shell: pwsh
+        run: ./herramientas/construir-imagenes.ps1 -Etapa compiladores -Salida $env:SALIDA
+
+      # Prueba de humo de lo que se va a publicar: extraer en otra carpeta, como lo haría
+      # un usuario sin internet, y usar git, Python y gcc desde la consola.
+      - name: Probar las imágenes en una carpeta nueva
+        timeout-minutes: 15
+        shell: pwsh
+        run: |
+          $prueba = Join-Path $env:RUNNER_TEMP "prueba-imagen"
+          New-Item -ItemType Directory -Force -Path $prueba | Out-Null
+          foreach ($zip in @("entorno-base-windows-x64.zip", "entorno-compiladores-windows-x64.zip")) {
+            tar -xf (Join-Path $env:SALIDA $zip) -C $prueba
+            if ($LASTEXITCODE -ne 0) { throw "No se pudo extraer $zip" }
+          }
+          if (Test-Path (Join-Path $prueba "msys64/etc/pacman.d/gnupg")) { throw "La imagen no debe incluir el llavero de pacman" }
+          if (Test-Path (Join-Path $prueba "home")) { throw "La imagen no debe incluir un HOME portable" }
+          if (@(Get-ChildItem (Join-Path $prueba "msys64/home") -Force -ErrorAction SilentlyContinue).Count -gt 0) { throw "La imagen no debe incluir el HOME de MSYS2 de la maquina que la armo" }
+          Import-Module (Join-Path $prueba "lib/env.common.psm1") -Force
+          $null = Set-PortableSession -PortableRoot $prueba
+          & (Join-Path $prueba "msys64/usr/bin/bash.exe") --login -c 'set -e; git --version; python3 -c "import typer, rich"; uv --version; printf "int main(void){return 0;}\n" > /tmp/p.c; gcc /tmp/p.c -o /tmp/p.exe; /tmp/p.exe; echo imagen-ok'
+          if ($LASTEXITCODE -ne 0) { throw "Las imágenes extraídas no funcionan" }
+
+      - name: Calcular SHA256SUMS
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path $env:SALIDA -Filter *.zip | Sort-Object Name | ForEach-Object {
+            "{0}  {1}" -f (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
+          } | Set-Content -Path (Join-Path $env:SALIDA "SHA256SUMS") -Encoding ascii
+          Get-Content (Join-Path $env:SALIDA "SHA256SUMS")
+          Get-ChildItem -Path $env:SALIDA | Format-Table Name, @{ n = "MB"; e = { [math]::Round($_.Length / 1MB) } }
+
+      - name: Publicar en el release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $archivos = @("entorno-base-windows-x64.zip", "entorno-compiladores-windows-x64.zip", "SHA256SUMS") | ForEach-Object { Join-Path $env:SALIDA $_ }
+          gh release view $env:TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:TAG @archivos --clobber
+          } else {
+            gh release create $env:TAG @archivos --title "Entorno $env:TAG" --notes "Imágenes precompiladas del entorno de Windows (base y capa de compiladores). setup.ps1 las usa automáticamente en las instalaciones nuevas; también se pueden descomprimir para usar el entorno sin internet. Ver docs/instalacion/windows.md."
+          }
+          if ($LASTEXITCODE -ne 0) { throw "No se pudo publicar el release $env:TAG" }
+
+      - name: Logs de diagnóstico ante fallo
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: logs-release-imagenes
+          path: |
+            install.log
+            modulo-compiladores.log
+          if-no-files-found: ignore

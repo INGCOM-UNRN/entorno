@@ -1,14 +1,14 @@
 # smoke.ps1 - Ejecuta la suite de aceptacion automatizada (bin/smoke.sh) en el bash portable.
 $ErrorActionPreference = "Stop"
-$portableRoot = $PSScriptRoot
-if ([string]::IsNullOrEmpty($portableRoot)) { $portableRoot = (Get-Location).Path }
+# Vive en herramientas\: la raiz del entorno es la carpeta padre
+$portableRoot = Split-Path -Parent $PSScriptRoot
 $bashPath = Join-Path $portableRoot "msys64\usr\bin\bash.exe"
 if (-not (Test-Path $bashPath)) {
     Write-Error "No se encontro MSYS2. Ejecuta setup.ps1 primero."
     exit 1
 }
 
-$envModule = Join-Path $portableRoot "env.common.psm1"
+$envModule = Join-Path $portableRoot "lib\env.common.psm1"
 if (Test-Path $envModule) {
     Import-Module $envModule -Force
     $null = Set-PortableSession -PortableRoot $portableRoot

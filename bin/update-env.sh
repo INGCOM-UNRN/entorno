@@ -17,7 +17,7 @@ echo -e "\e[36m=================================================================
 # 1. Actualizar los scripts locales
 echo -e "\n\e[33m[1/2] Descargando y actualizando scripts del repositorio...\e[0m"
 
-REPO_OWNER="INGCOM-UNRN-P1"
+REPO_OWNER="INGCOM-UNRN"
 REPO_NAME="entorno"
 # Canal de actualización configurable vía .env (ej: CHANNEL=estable-2026c1)
 BRANCH="main"
@@ -38,20 +38,15 @@ unzip -q -o "$ZIP_PATH" -d "$TEMP_DIR"
 
 EXTRACTED_DIR="$TEMP_DIR/$REPO_NAME-$BRANCH"
 
-# Copiar scripts de la raíz (evitando pisar carpetas de configuración personal)
+# Copiar el snapshot completo: solo trae archivos versionados (nunca msys64, vscode, python,
+# el HOME portable ni descargas), así cualquier script o módulo nuevo llega sin mantener
+# una lista a mano. La carpeta .github (CI) no hace falta en el entorno.
 echo "Instalando nuevas versiones de los scripts locales..."
-cp -rf "$EXTRACTED_DIR"/{setup.ps1,launch.bat,launch.ps1,launch-vscode.bat,launch-vscode.ps1,env.common.psm1,clean-shared-host.ps1,customize-terminal.ps1,customize-terminal.bat,package-env.ps1,README.md,plan.md,GEMINI.md,packages-baseline.txt,VERSION,versions.json,wezterm.lua.template} "$PORTABLE_ROOT/"
-
-# Copiar documentación y la variante Linux completas
-cp -rf "$EXTRACTED_DIR"/docs "$PORTABLE_ROOT/"
-cp -rf "$EXTRACTED_DIR"/linux "$PORTABLE_ROOT/"
-
-# Copiar scripts de bin/
-mkdir -p "$PORTABLE_ROOT/bin"
-cp -rf "$EXTRACTED_DIR"/bin/* "$PORTABLE_ROOT/bin/"
+rm -rf "$EXTRACTED_DIR/.github"
+cp -rf "$EXTRACTED_DIR"/. "$PORTABLE_ROOT/"
 
 # Asegurar permisos de ejecución en bin
-chmod +x "$PORTABLE_ROOT"/bin/*
+chmod +x "$PORTABLE_ROOT"/bin/* "$PORTABLE_ROOT"/linux/bin/* 2>/dev/null || true
 
 # Limpiar temporales
 rm -rf "$TEMP_DIR"
@@ -88,7 +83,8 @@ fi
 
 # 3. Actualizar componentes nativos
 echo -e "\n\e[33m[3/3] ¿Deseás ejecutar la actualización completa de herramientas nativas?\e[0m"
-echo "(Esto verificará e instalará actualizaciones de MSYS2, VS Code y GitHub CLI)."
+echo "(Esto verificará e instalará actualizaciones de la base: MSYS2, Git (MinGit), uv, Python, GitHub CLI y WezTerm,"
+echo " y de los módulos opcionales ya instalados: compiladores y VS Code)."
 echo -n "¿Continuar? (s/n): "
 read -r choice
 
