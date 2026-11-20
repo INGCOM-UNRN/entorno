@@ -562,12 +562,10 @@ try {
         $newArgs = @{
             SkipUpdate = $true
         }
-        if ($HomeDirName -ne "home") { 
-            $newArgs["HomeDirName"] = $HomeDirName 
-        }
-        if ($ImportHostConfig) { 
-            $newArgs["ImportHostConfig"] = $true 
-        }
+        if ($HomeDirName -ne "home") { $newArgs["HomeDirName"] = $HomeDirName }
+        if ($ImportHostConfig) { $newArgs["ImportHostConfig"] = $true }
+        if ($Yes) { $newArgs["Yes"] = $true }
+        if ($Latest) { $newArgs["Latest"] = $true }
         
         $localSetup = Join-Path $portableRoot "setup.ps1"
         & $localSetup @newArgs
@@ -575,9 +573,16 @@ try {
     }
 }
 
-# Escribir archivo de configuracion .env local
-    $envFilePath = Join-Path $portableRoot ".env"
-    Set-Content -Path $envFilePath -Value ('set "HOME_DIR_NAME={0}"' -f $HomeDirName)
+# Escribir archivo de configuracion .env local. Se reemplaza solo HOME_DIR_NAME: el resto de
+# las claves (por ejemplo CHANNEL, el canal de actualizacion) se conserva.
+$envFilePath = Join-Path $portableRoot ".env"
+$envLines = @()
+if (Test-Path $envFilePath) {
+    $envLines = @(Get-Content $envFilePath | Where-Object { $_ -notmatch 'HOME_DIR_NAME=' })
+}
+$envLines = @(('set "HOME_DIR_NAME={0}"' -f $HomeDirName)) + $envLines
+Set-Content -Path $envFilePath -Value $envLines
+
 
 # Asegurar que el archivo .env, el directorio personalizado y la carpeta descargas esten excluidos en .gitignore
 $gitignorePath = Join-Path $portableRoot ".gitignore"
