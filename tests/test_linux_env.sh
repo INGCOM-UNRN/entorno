@@ -209,6 +209,25 @@ import sys
 paquetes = [l.split('#')[0].strip() for l in open('$REPO_ROOT/config/packages-compiladores.txt', encoding='utf-8')]
 sys.exit(1 if any(p == 'git' or p.endswith(('-python', '-uv')) or '-python-' in p for p in paquetes) else 0)
 "
+# --- Perfil de MSYS2 (Windows): bin, Python y Git de la base antes que /ucrt64/bin ---
+PERFIL_DIR="$SANDBOX/perfil-msys2"
+mkdir -p "$PERFIL_DIR/stub" "$PERFIL_DIR/raiz/mingit/cmd"
+printf '#!/bin/sh\necho "$2"\n' > "$PERFIL_DIR/stub/cygpath"
+chmod +x "$PERFIL_DIR/stub/cygpath"
+: > "$PERFIL_DIR/raiz/mingit/cmd/git.exe"
+chmod +x "$PERFIL_DIR/raiz/mingit/cmd/git.exe"
+perfil_path() {
+    env -i HOME="$PERFIL_DIR" PATH="$PERFIL_DIR/stub:/ucrt64/bin:/usr/bin:/bin" \
+        PORTABLE_ROOT="$PERFIL_DIR/raiz" P1_PYTHON_DIR="/py" \
+        bash -c ". '$REPO_ROOT/config/perfil-msys2.sh'; . '$REPO_ROOT/config/perfil-msys2.sh'; echo \"\$PATH\""
+}
+export PERFIL_PATH
+PERFIL_PATH="$(perfil_path)"
+assert "perfil de MSYS2: bin, Python y MinGit antes que /ucrt64/bin" \
+    bash -c "case \"\$PERFIL_PATH\" in '$PERFIL_DIR/raiz/bin:/py:/py/Scripts:$PERFIL_DIR/raiz/mingit/cmd:'*) exit 0 ;; *) exit 1 ;; esac"
+assert "perfil de MSYS2: no duplica el PATH en shells anidados" \
+    bash -c "[ \"\$(printf '%s' \"\$PERFIL_PATH\" | tr ':' '\\n' | grep -c '^/py\$')\" = 1 ]"
+
 assert "versions.json es JSON válido con canal definido" python3 -c "
 import json, sys
 datos = json.load(open('$REPO_ROOT/config/versions.json'))

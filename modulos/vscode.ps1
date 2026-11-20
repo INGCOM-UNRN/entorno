@@ -274,7 +274,8 @@ if (-not $isUpdateMode -and $isCodeComplete -and $isCodeInstalled) {
         }
         
         Set-Content -Path (Join-Path $vscodeDir ".version") -Value $resolvedVscodeUrl
-        Set-Content -Path (Join-Path $portableRoot ".vscode_complete") -Value "Complete"
+        # El marcador .vscode_complete se escribe recien con las extensiones instaladas (abajo):
+        # si alguna falla, el proximo intento retoma las pendientes en lugar de saltearlas.
         Write-Host "VS Code Portable configurado/actualizado con exito." -ForegroundColor Green
     }
 }
@@ -305,6 +306,7 @@ if (Test-Path $codeCmd) {
                 if ($pinnedExts.Count -gt 0) { $extensions = $pinnedExts }
             }
         }
+        $extensionesFallidas = @()
         foreach ($ext in $extensions) {
             Write-Host "Instalando/verificando extension: $ext..."
             $process = Start-Process -FilePath $codeCmd -ArgumentList "--install-extension", $ext, "--force" -Wait -NoNewWindow -PassThru
@@ -312,9 +314,17 @@ if (Test-Path $codeCmd) {
                 Write-Host "Extension $ext instalada/verificada." -ForegroundColor Green
             } else {
                 Write-Warning "No se pudo instalar/verificar la extension $ext."
+                $extensionesFallidas += $ext
             }
         }
+        if ($extensionesFallidas.Count -gt 0) {
+            # Sin marcador: el proximo intento vuelve a instalar las extensiones
+            throw "No se pudieron instalar las extensiones: $($extensionesFallidas -join ', '). Reintenta con instalar-vscode.bat."
+        }
+        Set-Content -Path (Join-Path $portableRoot ".vscode_complete") -Value "Complete"
     }
+} elseif (-not (Test-Path (Join-Path $portableRoot ".vscode_complete"))) {
+    throw "VS Code no quedo instalado (falta vscode\bin\code.cmd). Reintenta con instalar-vscode.bat."
 }
 
 

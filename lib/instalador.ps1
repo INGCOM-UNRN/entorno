@@ -366,6 +366,40 @@ $ComponentesImagenBase = @(
     ".gh_complete", ".jonesy_complete", ".wezterm_complete"
 )
 
+# Archivos que la capa de compiladores borra (los que pacman elimino al armarla: versiones
+# viejas de paquetes de la base y sus registros en var/lib/pacman/local). Viaja dentro de la
+# capa; la aplica modulos\compiladores.ps1 o, si la capa se descomprimio a mano, doctor --fix.
+$ListaEliminadosCapa = "msys64/var/lib/p1-entorno/capa-compiladores-eliminados.txt"
+
+# Aplica la lista de eliminados de la capa (si esta) y la borra. Solo acepta rutas dentro de
+# msys64 y quita las carpetas que quedan vacias (un registro de pacman sin su 'desc' es un
+# error para pacman). Devuelve la cantidad de archivos borrados.
+function Invoke-EliminadosCapa {
+    param([string]$PortableRoot)
+    $lista = $PortableRoot
+    foreach ($parte in $ListaEliminadosCapa.Split('/')) { $lista = Join-Path $lista $parte }
+    if (-not (Test-Path -LiteralPath $lista)) { return 0 }
+    $borrados = 0
+    foreach ($linea in @(Get-Content -LiteralPath $lista)) {
+        $relativa = $linea.Trim()
+        if (-not $relativa.StartsWith("msys64/") -or $relativa.Contains("..")) { continue }
+        $ruta = $PortableRoot
+        foreach ($parte in $relativa.Split('/')) { $ruta = Join-Path $ruta $parte }
+        if (Test-Path -LiteralPath $ruta -PathType Leaf) {
+            Remove-Item -LiteralPath $ruta -Force
+            $borrados++
+            $padre = Split-Path -Parent $ruta
+            if ((Test-Path -LiteralPath $padre) -and -not (Get-ChildItem -LiteralPath $padre -Force | Select-Object -First 1)) {
+                Remove-Item -LiteralPath $padre -Force
+            }
+        }
+    }
+    # Aplicada una vez: si quedara, un doctor --fix posterior podria borrar archivos que
+    # pacman volvio a instalar
+    Remove-Item -LiteralPath $lista -Force
+    return $borrados
+}
+
 # Release del que salen las imagenes: el indicado (tag) o el ultimo publicado.
 # Devuelve el tag y un diccionario nombre de archivo -> URL de descarga.
 function Get-ImagenRelease {

@@ -51,6 +51,7 @@ La base no usa pacman: git es MinGit y Python viene de uv.
 | Archivo | Uso |
 |---|---|
 | `config/wezterm.lua.template` | Configuración de WezTerm; `launch.ps1` genera `wezterm.lua` a partir de ella. |
+| `config/perfil-msys2.sh` | Perfil de bash que `lib/env.common.psm1` copia a `msys64/etc/profile.d/` en cada sesión: pone `bin/`, el Python y el Git de la base delante de `/ucrt64/bin`. |
 | `config/gdb/gdbinit` | `.gdbinit` de la cátedra (comandos `explicar`, `dashboard` y `vars`); lo instala `doctor --fix`. |
 
 ## Versión del entorno

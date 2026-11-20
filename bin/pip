@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# pip - pip del Python de la base del entorno (Windows), siempre como 'python3 -m pip'.
+#
+# Los pip.exe / pip3.exe que genera pip guardan la ruta absoluta de python.exe: dejan de
+# funcionar si el entorno cambia de carpeta o de unidad (un pendrive) o si vino en una imagen
+# precompilada armada en otra máquina. Este comando no depende de esa ruta. bin/ va primero
+# en el PATH, así que gana sobre los .exe.
+exec python3 -m pip "$@"

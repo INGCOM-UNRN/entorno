@@ -48,6 +48,10 @@ Cada fase deja un marcador en la raíz: `.install_complete` (base), `.msys_compl
 4. Confina uv al entorno (`UV_CACHE_DIR`, `UV_PYTHON_INSTALL_DIR`, `UV_TOOL_DIR`, sin
    registro de Windows).
 
+5. Instala el perfil `msys64/etc/profile.d/p1-entorno.sh` (desde `config/perfil-msys2.sh`):
+   MSYS2 antepone `/ucrt64/bin` y `/usr/bin` al PATH heredado, y el perfil vuelve a poner
+   adelante `bin/`, el Python y el Git de la base dentro de bash.
+
 Después `launch.ps1` genera `wezterm.lua` desde `config/wezterm.lua.template` y abre WezTerm
 (o bash en la consola clásica si WezTerm falta); `launch-vscode.ps1` ajusta en
 `settings.json` la ruta del compilador y abre VS Code.
@@ -65,12 +69,23 @@ de Windows y publica en el release:
 
 `setup.ps1` usa la imagen base en una instalación nueva (salvo `-SinImagen` o `-Latest`) y
 registra el tag en `.imagen`. El módulo de compiladores usa la capa **solo si** la base vino
-de la imagen del mismo release: la capa es la diferencia respecto de esa base exacta y sobre
-otra podría mezclar versiones. En cualquier otro caso instala con pacman.
+de la imagen del mismo release y pacman no la modificó: la capa es la diferencia respecto de
+esa base exacta y sobre otra podría mezclar versiones. Un hook de pacman
+(`etc/pacman.d/hooks/p1-entorno-imagen.hook`) borra `.imagen` en cualquier transacción; en
+esos casos el módulo instala con pacman.
+
+La capa lleva también la lista de archivos que pacman eliminó al armarla
+(`msys64/var/lib/p1-entorno/capa-compiladores-eliminados.txt`: versiones anteriores de
+paquetes de la base y sus registros). El módulo la aplica al instalar la capa; si la capa se
+descomprimió a mano, la aplica `doctor --fix`. Para que normalmente esté vacía, el workflow
+actualiza MSYS2 antes de armar la imagen base.
 
 Las imágenes no incluyen el HOME portable, el HOME de MSYS2 del runner, temporales, la
 caché de pacman ni el llavero de pacman (`etc/pacman.d/gnupg`): su clave privada quedaría
-publicada y compartida por todos; MSYS2 lo regenera en el primer inicio.
+publicada y compartida por todos; MSYS2 lo regenera en el primer inicio. Tampoco los `.exe`
+de `python/*/Scripts` (como `pip.exe`), que guardan la ruta absoluta del Python de la
+máquina que armó la imagen: en la consola, `pip` y `pip3` son comandos de `bin/` que usan
+`python3 -m pip`.
 
 ## Instalación y actualización
 

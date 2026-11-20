@@ -162,7 +162,7 @@ Se ejecutan desde PowerShell (`.\herramientas\<script>.ps1`); resuelven la raíz
 ### `doctor [--fix]`
 * **Propósito:** Verificación rápida de salud post-instalación y autorreparación ligera.
 * **Funcionamiento:** Compila, enlaza y ejecuta un programa mínimo (en Windows, si el módulo de compiladores no está instalado lo avisa sin contarlo como falla); valida make/cmake/ninja, Python, identidad de Git, sesión de gh y presencia de los directorios del entorno en el PATH. Código de salida 0 solo si no hay fallos.
-* **Modo `--fix`:** regenera únicamente lo que falta, sin reinstalar componentes: el skel del HOME portable (`.bashrc`/`.bash_profile` con la variante canónica de cada plataforma), el `.gdbinit` pedagógico del c-debug-companion (comandos `explicar`, `dashboard` y `vars` dentro de GDB, copiado desde `config/gdb/gdbinit`), los marcadores de estado (`.msys_complete`, `.compiladores_complete`, `.vscode_complete`, `.gh_complete`, `.wezterm_complete`, `.install_complete`, solo si el componente correspondiente existe en disco) y el `settings.json` base de VS Code. Nunca sobrescribe archivos del usuario; funciona incluso sin sesión activa resolviendo la raíz desde su propia ubicación.
+* **Modo `--fix`:** en Windows, si quedó la lista de eliminados de una capa de compiladores descomprimida a mano, la aplica y la borra. Además regenera únicamente lo que falta, sin reinstalar componentes: el skel del HOME portable (`.bashrc`/`.bash_profile` con la variante canónica de cada plataforma), el `.gdbinit` pedagógico del c-debug-companion (comandos `explicar`, `dashboard` y `vars` dentro de GDB, copiado desde `config/gdb/gdbinit`), los marcadores de estado (`.msys_complete`, `.compiladores_complete`, `.vscode_complete`, `.gh_complete`, `.wezterm_complete`, `.install_complete`, solo si el componente correspondiente existe en disco) y el `settings.json` base de VS Code. Nunca sobrescribe archivos del usuario; funciona incluso sin sesión activa resolviendo la raíz desde su propia ubicación.
 
 ### `download-baseline.sh`
 * **Propósito:** Precargar caché de pacman para instalaciones offline.
@@ -171,6 +171,10 @@ Se ejecutan desde PowerShell (`.\herramientas\<script>.ps1`); resuelven la raíz
 ### `entregar [directorio]`
 * **Propósito:** Empaquetar el trabajo práctico para entrega.
 * **Funcionamiento:** Compila el proyecto vía Makefile (validación previa a la entrega), ejecuta el corrector local si existen pruebas (`verificar`) y, en proyectos con manifiesto de Ripley (`ripley.toml` / `.ripkg`), pre-valida con `ripley check . --strict` antes de empacar. Genera `ENTREGA_<proyecto>_<fecha>.zip` con solo fuentes, excluyendo binarios, `.o`, builds y `.git`, usando Python para máxima portabilidad. Si el TP vive en un repositorio Git con remoto, ofrece publicar los cambios con commit + push (confirmación explícita del alumno).
+
+### `pip` y `pip3`
+* **Propósito:** `pip` del Python de la base, portable.
+* **Funcionamiento:** Ejecuta `python3 -m pip`. Los `pip.exe` que genera pip guardan la ruta absoluta de `python.exe` y dejan de funcionar si el entorno cambia de carpeta o de unidad, o si vino en una imagen armada en otra máquina; `bin/` va primero en el PATH, así que estos comandos ganan.
 
 ### `instalar <módulo>`
 * **Propósito:** Instalar un módulo opcional desde la consola (`instalar compiladores`, `instalar vscode`).

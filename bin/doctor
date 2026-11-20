@@ -144,6 +144,23 @@ EOF
             ensure_marker ".msys_complete" "MSYS2"
             ensure_marker ".install_complete" "instalación general"
         fi
+        # Capa precompilada de compiladores descomprimida a mano (uso offline): aplicar los
+        # archivos que la capa elimina (versiones viejas de paquetes y sus registros de pacman)
+        CAPA_ELIMINADOS="$ROOT/msys64/var/lib/p1-entorno/capa-compiladores-eliminados.txt"
+        if [ -f "$CAPA_ELIMINADOS" ]; then
+            n_eliminados=0
+            while IFS= read -r rel || [ -n "$rel" ]; do
+                rel="${rel%$'\r'}"
+                case "$rel" in msys64/*) ;; *) continue ;; esac
+                case "$rel" in *..*) continue ;; esac
+                if [ -f "$ROOT/$rel" ]; then
+                    rm -f "$ROOT/$rel" && n_eliminados=$((n_eliminados + 1))
+                    rmdir "$(dirname "$ROOT/$rel")" 2>/dev/null || true
+                fi
+            done < "$CAPA_ELIMINADOS"
+            rm -f "$CAPA_ELIMINADOS"
+            fixed "Capa de compiladores: $n_eliminados archivos de versiones anteriores eliminados."
+        fi
         [ -f "$ROOT/msys64/ucrt64/bin/gcc.exe" ] && ensure_marker ".compiladores_complete" "módulo de compiladores"
         [ -f "$ROOT/vscode/Code.exe" ] && ensure_marker ".vscode_complete" "VS Code"
         [ -f "$ROOT/bin/gh.exe" ] && ensure_marker ".gh_complete" "GitHub CLI"

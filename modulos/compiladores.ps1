@@ -68,6 +68,8 @@ try {
             if (-not $capaUrl) { throw "el release $imagenTag no publica $NombreImagenCompiladores" }
             Write-Host "Instalando la capa precompilada de compiladores (release $imagenTag)..." -ForegroundColor Cyan
             Install-ImagenRelease -Url $capaUrl -PortableRoot $portableRoot -DescargasDir $descargasDir -Componentes @("msys64")
+            $borrados = Invoke-EliminadosCapa -PortableRoot $portableRoot
+            if ($borrados -gt 0) { Write-Host "Capa aplicada: $borrados archivos de versiones anteriores eliminados." -ForegroundColor DarkGray }
             if (-not (Test-Path $gccExe)) { throw "la capa no dejo gcc.exe en msys64\ucrt64\bin" }
             $usoImagen = $true
         } catch {

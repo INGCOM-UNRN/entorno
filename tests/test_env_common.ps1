@@ -61,7 +61,7 @@ New-Item -ItemType Directory -Path $fixture | Out-Null
 
 # Guardar el entorno para restaurarlo al final
 $prev = @{}
-$sessionVars = @("PORTABLE_ROOT","HOME","MSYSTEM","CHERE_INVOKING","LANG","CC","CXX","AR","AS","LD","CPP","CFLAGS","LDFLAGS","PKG_CONFIG_PATH","CMAKE_PREFIX_PATH","VSCODE_ROOT","WEZTERM_ROOT","MSYS2_PATH_TYPE",
+$sessionVars = @("PORTABLE_ROOT","HOME","MSYSTEM","CHERE_INVOKING","LANG","CC","CXX","AR","AS","LD","CPP","CFLAGS","LDFLAGS","PKG_CONFIG_PATH","CMAKE_PREFIX_PATH","VSCODE_ROOT","WEZTERM_ROOT","MSYS2_PATH_TYPE","P1_PYTHON_DIR",
     "UV_CACHE_DIR","UV_PYTHON_INSTALL_DIR","UV_PYTHON_BIN_DIR","UV_PYTHON_INSTALL_BIN","UV_PYTHON_INSTALL_REGISTRY","UV_PYTHON_PREFERENCE","UV_TOOL_DIR","UV_TOOL_BIN_DIR","UV_NO_MODIFY_PATH")
 foreach ($k in $sessionVars) {
     $prev[$k] = [System.Environment]::GetEnvironmentVariable($k)
@@ -105,6 +105,20 @@ try {
     $null = Set-PortableSession -PortableRoot $fixture -HomeDirName "curso"
     $expectedPyPrefix = "$(Join-Path $fixture 'bin');$pyDir;$(Join-Path $pyDir 'Scripts');$(Join-Path $fixture 'msys64\ucrt64\bin');"
     Assert-True "PATH con el Python de la base entre bin y el compilador" ($env:PATH.StartsWith($expectedPyPrefix))
+    Assert-True "P1_PYTHON_DIR apunta al Python de la base (lo usa el perfil de MSYS2)" ($env:P1_PYTHON_DIR -eq $pyDir)
+
+    # Perfil de MSYS2: se copia a msys64/etc/profile.d si falta o cambio
+    New-Item -ItemType Directory -Force -Path (Join-Path $fixture "config") | Out-Null
+    $profileD = Join-Path $fixture "msys64/etc/profile.d"
+    New-Item -ItemType Directory -Force -Path $profileD | Out-Null
+    Set-Content (Join-Path $fixture "config/perfil-msys2.sh") -Value "# perfil v1" -NoNewline
+    $env:PATH = $prevPath
+    $null = Set-PortableSession -PortableRoot $fixture -HomeDirName "curso"
+    Assert-True "perfil de MSYS2 instalado en profile.d" ((Get-Content -Raw (Join-Path $profileD "p1-entorno.sh")) -eq "# perfil v1")
+    Set-Content (Join-Path $fixture "config/perfil-msys2.sh") -Value "# perfil v2" -NoNewline
+    $env:PATH = $prevPath
+    $null = Set-PortableSession -PortableRoot $fixture -HomeDirName "curso"
+    Assert-True "perfil de MSYS2 actualizado si cambio" ((Get-Content -Raw (Join-Path $profileD "p1-entorno.sh")) -eq "# perfil v2")
 
     # Con MinGit instalado, su cmd\ va despues de Python y antes del compilador
     $gitCmd = Join-Path $fixture "mingit\cmd"

@@ -162,7 +162,8 @@ al archivo `.env` de la carpeta (ver [Configuración](../referencia/configuracio
 [releases](https://github.com/INGCOM-UNRN/entorno/releases) `entorno-base-windows-x64.zip`
 y, si hace falta compilar, `entorno-compiladores-windows-x64.zip`. En la máquina destino
 descomprimí los dos **en la misma carpeta** (primero la base) y abrí `launch.bat`. Ejecutá
-`doctor --fix` una vez para registrar los módulos presentes.
+`doctor --fix` una vez: registra los módulos presentes y termina de aplicar la capa de
+compiladores (borra las versiones viejas de paquetes que la capa reemplaza).
 
 **Con un paquete propio** (incluye VS Code y lo que tengas instalado), en una máquina con
 conexión y el entorno ya instalado:

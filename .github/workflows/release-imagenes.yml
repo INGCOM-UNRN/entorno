@@ -47,6 +47,15 @@ jobs:
         shell: pwsh
         run: ./setup.ps1 -Yes -SkipUpdate -SinImagen -Modulos ninguno
 
+      # Con MSYS2 al día, el -Syu del módulo no tiene nada que actualizar y la capa de
+      # compiladores queda casi solo con agregados (lo que igual elimine viaja en su lista).
+      - name: Actualizar MSYS2 antes de armar la base
+        timeout-minutes: 20
+        shell: pwsh
+        run: |
+          & ./msys64/usr/bin/bash.exe --login -c "pacman -Syu --noconfirm"
+          & ./msys64/usr/bin/bash.exe --login -c "pacman -Su --noconfirm"
+
       - name: Armar la imagen base
         timeout-minutes: 20
         shell: pwsh

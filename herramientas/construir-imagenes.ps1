@@ -13,11 +13,16 @@
 #                      de msys64 para la etapa siguiente.
 # -Etapa compiladores  entorno-compiladores-windows-x64.zip: los archivos de msys64 que el
 #                      modulo de compiladores agrego o cambio respecto del inventario (incluye
-#                      la base de datos de pacman, para que pacman los siga administrando).
+#                      la base de datos de pacman, para que pacman los siga administrando),
+#                      mas la lista de los que elimino ($ListaEliminadosCapa): sin aplicarla,
+#                      una version vieja de un paquete de la base quedaria registrada junto a
+#                      la nueva.
 #
 # Nunca se empaquetan: el HOME portable, el HOME de MSYS2 de la maquina que arma la imagen,
 # temporales, la cache de pacman ni el llavero de pacman (etc/pacman.d/gnupg: su clave
-# privada quedaria publicada y compartida; MSYS2 lo regenera en el primer inicio).
+# privada quedaria publicada y compartida; MSYS2 lo regenera en el primer inicio). Tampoco
+# los .exe de python\*\Scripts (pip.exe y similares): guardan la ruta absoluta del python.exe
+# de la maquina que armo la imagen; en la consola, bin\pip usa 'python3 -m pip'.
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet("base", "compiladores")]
@@ -76,6 +81,7 @@ function New-Zip([string]$ZipPath, [string[]]$Rutas) {
         $patron = if ($e -eq "msys64/tmp" -or $e -eq "msys64/home") { "$e/*" } else { $e }
         $exclusiones += @("--exclude", $patron)
     }
+    $exclusiones += @("--exclude", "python/*/Scripts/*.exe")
     & $tarExe -a -c -f $ZipPath -C $portableRoot @exclusiones -T $listaPath
     if ($LASTEXITCODE -ne 0) { throw "tar.exe no pudo crear $ZipPath (codigo $LASTEXITCODE)." }
     Remove-Item $listaPath -Force
@@ -109,7 +115,15 @@ if ($Etapa -eq "base") {
     (Get-Content -Path $inventarioPath -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $antes[$_.Name] = $_.Value }
     $despues = Get-InventarioMsys
     $cambiados = @($despues.Keys | Where-Object { $antes[$_] -ne $despues[$_] } | Sort-Object)
-    Write-Host "Archivos de msys64 nuevos o cambiados por el modulo: $($cambiados.Count)" -ForegroundColor Cyan
+    $eliminados = @($antes.Keys | Where-Object { -not $despues.ContainsKey($_) } | Sort-Object)
+    Write-Host "Archivos de msys64 nuevos o cambiados por el modulo: $($cambiados.Count); eliminados: $($eliminados.Count)" -ForegroundColor Cyan
     if ($cambiados.Count -eq 0) { throw "El modulo de compiladores no cambio ningun archivo." }
+    if ($eliminados.Count -gt 0) {
+        $listaPath = $portableRoot
+        foreach ($parte in $ListaEliminadosCapa.Split('/')) { $listaPath = Join-Path $listaPath $parte }
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $listaPath) | Out-Null
+        [System.IO.File]::WriteAllLines($listaPath, $eliminados, (New-Object System.Text.UTF8Encoding($false)))
+        $cambiados += $ListaEliminadosCapa
+    }
     New-Zip -ZipPath (Join-Path $Salida $NombreImagenCompiladores) -Rutas $cambiados
 }

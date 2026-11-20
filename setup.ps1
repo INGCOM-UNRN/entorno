@@ -694,6 +694,27 @@ if ($isUpdateMode -or -not $isMsysComplete) {
     # Descargas paralelas en pacman: la base no usa pacman, pero el modulo de compiladores si
     & $bashPath --login -c "sed -i -E 's/^#?[[:space:]]*ParallelDownloads.*/ParallelDownloads = 5/' /etc/pacman.conf"
 
+    # La capa precompilada de compiladores solo es coherente sobre la base exacta de su imagen.
+    # Cualquier transaccion de pacman (update-packages.sh, el modulo, un pacman manual) cambia
+    # esa base: este hook borra .imagen para que el modulo ya no aplique la capa y use pacman.
+    $hooksDir = Join-Path $msysDir "etc\pacman.d\hooks"
+    New-Item -ItemType Directory -Force -Path $hooksDir | Out-Null
+    $hookImagen = @(
+        "# Entorno P1: si pacman modifica MSYS2, la capa precompilada de compiladores ya no aplica.",
+        "[Trigger]",
+        "Operation = Install",
+        "Operation = Upgrade",
+        "Operation = Remove",
+        "Type = Package",
+        "Target = *",
+        "",
+        "[Action]",
+        "Description = Entorno P1: la base de MSYS2 cambio, se descarta la capa precompilada de compiladores",
+        "When = PostTransaction",
+        "Exec = /usr/bin/bash -c 'rm -f `"`$(dirname `"`$(cygpath -m /)`")/.imagen`"'"
+    ) -join "`n"
+    [System.IO.File]::WriteAllText((Join-Path $hooksDir "p1-entorno-imagen.hook"), $hookImagen + "`n", $utf8NoBom)
+
     # Configurar alias en el HOME portable
     $bashrcPath = Join-Path $homeDir ".bashrc"
     if (-not (Test-Path $bashrcPath)) {
@@ -705,10 +726,7 @@ if ($isUpdateMode -or -not $isMsysComplete) {
         $customAliases = @(
             "# === Portable Dev Environment Aliases ===",
             "alias python='python3'",
-            # 'python3 -m pip' y no pip.exe: los .exe que genera pip guardan la ruta absoluta de
-            # python.exe y dejan de andar si el entorno cambia de carpeta o de unidad.
-            "alias pip='python3 -m pip'",
-            "alias pip3='python3 -m pip'",
+            # pip y pip3 no son alias: son comandos de bin\ (python3 -m pip), portables
             "alias make='mingw32-make'",
             "alias ll='ls -alF --color=auto'",
             "export PS1='\[\e[32m\]\u@portable \[\e[33m\]\w\[\e[0m\]\n$ '"

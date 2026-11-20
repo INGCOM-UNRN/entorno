@@ -132,6 +132,29 @@ function Get-PortablePythonDir {
     return $best
 }
 
+function Install-PerfilMsys {
+    <#
+    .SYNOPSIS
+    Copia config\perfil-msys2.sh a msys64\etc\profile.d\p1-entorno.sh si falta o cambio.
+    MSYS2 (UCRT64) antepone /ucrt64/bin y /usr/bin al PATH heredado; ese perfil vuelve a
+    poner adelante bin\, el Python y el Git de la base. Se instala en cada inicio de sesion
+    para cubrir instalaciones anteriores e imagenes descomprimidas a mano.
+    #>
+    param([string]$PortableRoot)
+
+    $origen = Join-Path (Join-Path $PortableRoot "config") "perfil-msys2.sh"
+    $profileDir = Join-Path (Join-Path (Join-Path $PortableRoot "msys64") "etc") "profile.d"
+    if (-not (Test-Path $origen) -or -not (Test-Path $profileDir)) { return }
+    $destino = Join-Path $profileDir "p1-entorno.sh"
+    $contenido = [System.IO.File]::ReadAllText($origen)
+    if ((Test-Path $destino) -and [System.IO.File]::ReadAllText($destino) -eq $contenido) { return }
+    try {
+        [System.IO.File]::WriteAllText($destino, $contenido, (New-Object System.Text.UTF8Encoding($false)))
+    } catch {
+        Write-Warning "No se pudo actualizar el perfil de MSYS2 ($destino): $_"
+    }
+}
+
 function Set-PortableSession {
     <#
     .SYNOPSIS
@@ -167,6 +190,8 @@ function Set-PortableSession {
     $pythonDir = Get-PortablePythonDir -PortableRoot $PortableRoot
     if ($pythonDir) {
         $pythonPaths = "$pythonDir;$(Join-Path $pythonDir 'Scripts');"
+        # Lo usa el perfil de MSYS2 (config\perfil-msys2.sh) para conservar este orden en bash
+        $env:P1_PYTHON_DIR = $pythonDir
     }
     # Git de la base (MinGit): cmd\ trae solo git.exe y sus wrappers, sin pisar el userland
     $gitPaths = ""
@@ -177,6 +202,7 @@ function Set-PortableSession {
     $env:PATH = "$binPath;$pythonPaths$gitPaths$gccPath;$usrPath;$env:PATH"
     $env:MSYS2_PATH_TYPE = "inherit"
     Set-PortableUvEnvironment -PortableRoot $PortableRoot
+    Install-PerfilMsys -PortableRoot $PortableRoot
 
     # Variables especificas del Toolchain de C/C++
     # (GCC en MSYS2 resuelve sus directorios internos relativos a su ubicacion;
@@ -260,4 +286,4 @@ function Set-VsCodeCompilerSettings {
     return $false
 }
 
-Export-ModuleMember -Function Test-ConflictivePath, Show-PathWarning, Get-PortableHomeName, Set-PortableUvEnvironment, Get-PortablePythonDir, Set-PortableSession, Set-VsCodeCompilerSettings
+Export-ModuleMember -Function Test-ConflictivePath, Show-PathWarning, Get-PortableHomeName, Set-PortableUvEnvironment, Get-PortablePythonDir, Install-PerfilMsys, Set-PortableSession, Set-VsCodeCompilerSettings

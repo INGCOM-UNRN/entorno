@@ -92,6 +92,30 @@ $null = Get-ImagenRelease -Tag "v1.2.0"
 Assert-True "con tag consulta ese release" ($script:urlConsultada -match "/releases/tags/v1\.2\.0$")
 Remove-Item Function:\Get-GitHubApiCached
 
+# Invoke-EliminadosCapa: aplica la lista de la capa de compiladores y la borra
+$ListaEliminadosCapa = "msys64/var/lib/p1-entorno/capa-compiladores-eliminados.txt"
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Invoke-EliminadosCapa")))
+$capa = Join-Path ([System.IO.Path]::GetTempPath()) ("capa-" + [guid]::NewGuid().ToString("N"))
+try {
+    $viejo = Join-Path $capa "msys64/var/lib/pacman/local/zlib-1.0"
+    New-Item -ItemType Directory -Force -Path $viejo | Out-Null
+    Set-Content (Join-Path $viejo "desc") "x"
+    Set-Content (Join-Path $viejo "files") "x"
+    Set-Content (Join-Path $capa "afuera.txt") "no se toca"
+    New-Item -ItemType Directory -Force -Path (Join-Path $capa "msys64/var/lib/p1-entorno") | Out-Null
+    Set-Content (Join-Path $capa $ListaEliminadosCapa) @(
+        "msys64/var/lib/pacman/local/zlib-1.0/desc", "msys64/var/lib/pacman/local/zlib-1.0/files",
+        "afuera.txt", "msys64/../afuera.txt")
+    $n = Invoke-EliminadosCapa -PortableRoot $capa
+    Assert-True "eliminados: borra los archivos listados dentro de msys64" ($n -eq 2)
+    Assert-True "eliminados: quita la carpeta que queda vacia (registro de pacman)" (-not (Test-Path $viejo))
+    Assert-True "eliminados: ignora rutas fuera de msys64 o con .." (Test-Path (Join-Path $capa "afuera.txt"))
+    Assert-True "eliminados: la lista se borra despues de aplicarla" (-not (Test-Path (Join-Path $capa $ListaEliminadosCapa)))
+    Assert-True "eliminados: sin lista no hace nada" ((Invoke-EliminadosCapa -PortableRoot $capa) -eq 0)
+} finally {
+    Remove-Item -Recurse -Force $capa -ErrorAction SilentlyContinue
+}
+
 # ============================================================
 # 1. Invoke-DownloadWithRetry: reintentos uniformes de descargas
 # ============================================================

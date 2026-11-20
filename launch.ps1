@@ -83,6 +83,8 @@ if (-not (Test-Path $wezConfigPath)) {
     $content = [System.IO.File]::ReadAllText($wezConfigPath, [System.Text.Encoding]::UTF8)
     $fixed = $content -replace 'MSYSTEM\s*=\s*"(CLANG|MINGW)64"', 'MSYSTEM = "UCRT64"'
     $fixed = $fixed -replace 'msys64/(clang|mingw)64/', 'msys64/ucrt64/'
+    # No anteponer UCRT64 al PATH heredado: le ganaba al Python de la base (instalaciones anteriores)
+    $fixed = $fixed.Replace('portable_root .. "bin;" .. portable_root .. "msys64/ucrt64/bin;" .. portable_root .. "msys64/usr/bin;" .. path_env', 'portable_root .. "bin;" .. path_env')
     # Que la ventana no desaparezca si bash termina con error (instalaciones anteriores)
     if ($fixed -notmatch 'exit_behavior' -and $fixed -match '(?m)^config\.default_prog.*$') {
         $fixed = $fixed -replace '(?m)^(config\.default_prog.*)$', ('$1' + "`nconfig.exit_behavior = `"CloseOnCleanExit`"")
