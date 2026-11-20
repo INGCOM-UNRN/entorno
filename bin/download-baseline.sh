@@ -23,7 +23,7 @@ pacman -Sy
 
 echo -e "\nDescargando paquetes del baseline y sus dependencias..."
 # Fuente única de paquetes: packages-compiladores.txt (la base no usa pacman: git es MinGit)
-PKG_FILES=("${PORTABLE_ROOT}/packages-compiladores.txt")
+PKG_FILES=("${PORTABLE_ROOT}/config/packages-compiladores.txt")
 for PKG_FILE in "${PKG_FILES[@]}"; do
     if [ ! -f "$PKG_FILE" ]; then
         echo -e "\e[31m[ERROR] No se encontró $(basename "$PKG_FILE") en ${PORTABLE_ROOT}.\e[0m"

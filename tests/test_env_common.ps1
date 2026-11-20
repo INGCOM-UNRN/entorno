@@ -6,7 +6,7 @@
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-Import-Module (Join-Path $RepoRoot "env.common.psm1") -Force
+Import-Module (Join-Path $RepoRoot "lib/env.common.psm1") -Force
 
 $Fail = 0
 function Assert-True {

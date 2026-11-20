@@ -30,7 +30,7 @@ jobs:
         timeout-minutes: 5
         shell: pwsh
         run: |
-          Import-Module ./env.common.psm1 -Force
+          Import-Module ./lib/env.common.psm1 -Force
           $null = Set-PortableSession -PortableRoot (Get-Location).Path
           foreach ($archivo in @("bin/uv.exe", "python/ACTUAL", "mingit/cmd/git.exe", ".install_complete", ".msys_complete")) {
             if (-not (Test-Path $archivo)) { throw "Falta $archivo en la instalacion base" }
@@ -72,12 +72,12 @@ jobs:
       - name: Pruebas de aceptación automatizadas (smoke)
         timeout-minutes: 15
         shell: pwsh
-        run: ./smoke.ps1
+        run: ./herramientas/smoke.ps1
 
       - name: Empaquetado offline compacto
         timeout-minutes: 20
         shell: pwsh
-        run: ./package-env.ps1 -Compact
+        run: ./herramientas/package-env.ps1 -Compact
 
       # -Yes: sin consola interactiva la pausa final de install-offline.ps1 esperaba
       # una tecla indefinidamente y el job agotaba el límite de 2h30.

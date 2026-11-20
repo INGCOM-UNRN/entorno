@@ -4,7 +4,8 @@
 $ErrorActionPreference = "Stop"
 
 # Directorio base del script
-$portableRoot = $PSScriptRoot
+# Vive en herramientas\: la raiz del entorno es la carpeta padre
+$portableRoot = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { "" }
 if ([string]::IsNullOrEmpty($portableRoot)) {
     $portableRoot = (Get-Location).Path
 }

@@ -200,18 +200,18 @@ rm -f "$SANDBOX/repo/diagnose.log"
 # --- Integridad del repositorio: fuentes únicas sin drift ---
 assert "packages-compiladores.txt no tiene paquetes duplicados ni está vacío" python3 -c "
 import sys
-lineas = [l.split('#')[0].strip() for l in open('$REPO_ROOT/packages-compiladores.txt', encoding='utf-8')]
+lineas = [l.split('#')[0].strip() for l in open('$REPO_ROOT/config/packages-compiladores.txt', encoding='utf-8')]
 paquetes = [l for l in lineas if l]
 sys.exit(0 if paquetes and len(paquetes) == len(set(paquetes)) else 1)
 "
 assert "git, Python y uv no vienen de pacman (son de la base: MinGit y uv)" python3 -c "
 import sys
-paquetes = [l.split('#')[0].strip() for l in open('$REPO_ROOT/packages-compiladores.txt', encoding='utf-8')]
+paquetes = [l.split('#')[0].strip() for l in open('$REPO_ROOT/config/packages-compiladores.txt', encoding='utf-8')]
 sys.exit(1 if any(p == 'git' or p.endswith(('-python', '-uv')) or '-python-' in p for p in paquetes) else 0)
 "
 assert "versions.json es JSON válido con canal definido" python3 -c "
 import json, sys
-datos = json.load(open('$REPO_ROOT/versions.json'))
+datos = json.load(open('$REPO_ROOT/config/versions.json'))
 sys.exit(0 if isinstance(datos, dict) and datos.get('canal') else 1)
 "
 

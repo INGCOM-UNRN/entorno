@@ -13,7 +13,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$portableRoot = $PSScriptRoot
+# Vive en herramientas\: la raiz del entorno es la carpeta padre
+$portableRoot = Split-Path -Parent $PSScriptRoot
 $msysDir = Join-Path $portableRoot "msys64"
 $vscodeDir = Join-Path $portableRoot "vscode"
 $outputZip = Join-Path $portableRoot "portable-env-offline.zip"

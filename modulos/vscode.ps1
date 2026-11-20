@@ -2,7 +2,7 @@
 #
 # La base (setup.ps1) no lo necesita: el entorno funciona con la consola (WezTerm + bash) y
 # jonesy. Este modulo agrega VS Code en modo portable (carpeta vscode\, con su 'data' propia)
-# y las extensiones de C/C++ y Python fijadas en versions.json.
+# y las extensiones de C/C++ y Python fijadas en config\versions.json.
 #
 # Uso:
 #   instalar-vscode.bat                         (doble clic, o desde la consola: instalar vscode)
@@ -26,7 +26,7 @@ $portableRoot = Split-Path -Parent $PSScriptRoot
 
 $descargasDir = Join-Path $portableRoot "descargas"
 $vscodeDir = Join-Path $portableRoot "vscode"
-$pinnedVersions = Read-VersionManifest -Path (Join-Path $portableRoot "versions.json") -Latest:$Latest
+$pinnedVersions = Read-VersionManifest -Path (Join-Path $portableRoot "config\versions.json") -Latest:$Latest
 # "Modo actualizacion" del modulo: solo si se pidio y ya habia una instalacion completa
 $isUpdateMode = $Actualizar -and (Test-Path (Join-Path $portableRoot ".vscode_complete"))
 

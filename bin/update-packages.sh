@@ -20,7 +20,7 @@ fi
 CACHE_DIR="${PORTABLE_ROOT}/descargas/pacman_cache"
 PKG_FILES=()
 if [ -f "${PORTABLE_ROOT}/.compiladores_complete" ]; then
-    PKG_FILES+=("${PORTABLE_ROOT}/packages-compiladores.txt")
+    PKG_FILES+=("${PORTABLE_ROOT}/config/packages-compiladores.txt")
 fi
 
 for PKG_FILE in "${PKG_FILES[@]+"${PKG_FILES[@]}"}"; do

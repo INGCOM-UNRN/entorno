@@ -167,10 +167,11 @@ try {
     # ==========================================
     # Una sola vez por ejecucion (P1_SETUP_RELANZADO): si el canal configurado es anterior a los
     # modulos, el snapshot tampoco los trae y relanzar de nuevo seria un bucle.
+    $archivosRequeridos = @("lib\instalador.ps1", "lib\env.common.psm1", "modulos", "config\versions.json")
     $faltanArchivosNuevos = ($env:P1_SETUP_RELANZADO -ne "1") -and
-        (-not (Test-Path $libPath) -or -not (Test-Path (Join-Path $portableRoot "modulos")))
+        (@($archivosRequeridos | Where-Object { -not (Test-Path (Join-Path $portableRoot $_)) }).Count -gt 0)
     if ($SkipUpdate -and $faltanArchivosNuevos) {
-        Write-Host "Faltan archivos del instalador (lib\, modulos\): se descargan aunque se pidio -SkipUpdate." -ForegroundColor Yellow
+        Write-Host "Faltan archivos del instalador (lib\, modulos\, config\): se descargan aunque se pidio -SkipUpdate." -ForegroundColor Yellow
     }
     if ($SkipUpdate -and -not $faltanArchivosNuevos) {
         Write-Host "=== Omitiendo actualizacion de scripts (-SkipUpdate) ===" -ForegroundColor DarkGray
@@ -329,10 +330,35 @@ if (-not (Test-Path $libPath)) {
     throw "Falta $libPath. Volve a descargar el entorno completo (o ejecuta setup.ps1 sin -SkipUpdate)."
 }
 . $libPath
-Import-Module (Join-Path $portableRoot "env.common.psm1") -Force
+Import-Module (Join-Path $portableRoot "lib\env.common.psm1") -Force
 
-# Manifiesto de versiones por cuatrimestre (versions.json); -Latest lo ignora
-$pinnedVersions = Read-VersionManifest -Path (Join-Path $portableRoot "versions.json") -Latest:$Latest
+# La raiz del repositorio se reorganizo: la autoactualizacion copia los archivos en su lugar
+# nuevo pero no borra los viejos. En instalaciones sin git se quitan las copias obsoletas de
+# la raiz (solo si ya existe la nueva); en un repositorio git eso lo resuelve git pull.
+if (-not (Test-Path (Join-Path $portableRoot ".git"))) {
+    $archivosMovidos = [ordered]@{
+        "env.common.psm1"           = "lib\env.common.psm1"
+        "versions.json"             = "config\versions.json"
+        "packages-baseline.txt"     = "config\packages-compiladores.txt"
+        "wezterm.lua.template"      = "config\wezterm.lua.template"
+        "clean-shared-host.ps1"     = "herramientas\clean-shared-host.ps1"
+        "customize-terminal.ps1"    = "herramientas\customize-terminal.ps1"
+        "fix-antivirus.ps1"         = "herramientas\fix-antivirus.ps1"
+        "package-env.ps1"           = "herramientas\package-env.ps1"
+        "smoke.ps1"                 = "herramientas\smoke.ps1"
+        "plan.md"                   = "docs\desarrollo\plan.md"
+        "mejoras-y-problemas.md"    = "docs\desarrollo\mejoras-y-problemas.md"
+    }
+    foreach ($viejo in $archivosMovidos.Keys) {
+        $rutaVieja = Join-Path $portableRoot $viejo
+        if ((Test-Path $rutaVieja) -and (Test-Path (Join-Path $portableRoot $archivosMovidos[$viejo]))) {
+            Remove-Item -Path $rutaVieja -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+# Manifiesto de versiones por cuatrimestre (config\versions.json); -Latest lo ignora
+$pinnedVersions = Read-VersionManifest -Path (Join-Path $portableRoot "config\versions.json") -Latest:$Latest
 
 # Escribir archivo de configuracion .env local. Se reemplaza solo HOME_DIR_NAME: el resto de
 # las claves (por ejemplo CHANNEL, el canal de actualizacion) se conserva.
@@ -657,7 +683,7 @@ if ($isUpdateMode -or -not $isMsysComplete) {
 # uv se instala como binario standalone (no depende de pacman ni del modulo de
 # compiladores) y administra el Python de la base. Todo queda dentro del entorno:
 # uv.exe en bin\, el interprete en python\ y la cache en descargas\uv_cache, sin
-# registrar nada en el sistema (Set-PortableUvEnvironment en env.common.psm1).
+# registrar nada en el sistema (Set-PortableUvEnvironment en lib\env.common.psm1).
 Set-PortableUvEnvironment -PortableRoot $portableRoot
 $uvExe = Join-Path $portableRoot "bin\uv.exe"
 $uvVersionFile = Join-Path $portableRoot "bin\.uv_version"
@@ -769,9 +795,9 @@ if ((Invoke-NativeQuiet -FilePath $pythonExe -ArgumentList @("-m", "pip", "--ver
 }
 
 # Dependencias de las herramientas de la catedra (Ripley necesita typer y rich)
-$requirementsBase = Join-Path $portableRoot "requirements-base.txt"
+$requirementsBase = Join-Path $portableRoot "config\requirements-base.txt"
 if (Test-Path $requirementsBase) {
-    Write-Host "Instalando dependencias Python de la base (requirements-base.txt)..." -ForegroundColor Cyan
+    Write-Host "Instalando dependencias Python de la base (config\requirements-base.txt)..." -ForegroundColor Cyan
     & $uvExe pip install --python $pythonExe --break-system-packages -r $requirementsBase
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "No se pudieron instalar las dependencias Python de la base (codigo $LASTEXITCODE). Ripley no va a funcionar hasta reintentar setup.ps1."
@@ -784,7 +810,7 @@ if (Test-Path $requirementsBase) {
 # MinGit es la distribucion minima de Git for Windows pensada para uso en consola: un
 # zip autocontenido, sin instalador ni pacman. Reemplaza al git de MSYS2 para que la base
 # no tenga que sincronizar ni actualizar pacman. Va en mingit\ y su carpeta cmd\ entra
-# al PATH de la sesion (env.common.psm1). Como es un git nativo de Windows, uv
+# al PATH de la sesion (lib\env.common.psm1). Como es un git nativo de Windows, uv
 # ('uv tool install git+...') y VS Code lo usan directamente.
 $mingitDir = Join-Path $portableRoot "mingit"
 $mingitExe = Join-Path $mingitDir "cmd\git.exe"
@@ -1308,10 +1334,10 @@ if (-not $isUpdateMode -and $isWezComplete -and $isWezInstalled) {
 
 # Escribir configuracion wezterm.lua a partir de la plantilla canonica unica
 $wezConfigPath = Join-Path $portableRoot "wezterm.lua"
-$wezTemplateFile = Join-Path $portableRoot "wezterm.lua.template"
+$wezTemplateFile = Join-Path $portableRoot "config\wezterm.lua.template"
 if (-not (Test-Path $wezConfigPath) -or $isUpdateMode -or $shouldInstallOrUpdateWez) {
     if (-not (Test-Path $wezTemplateFile)) {
-        throw "No se encontro wezterm.lua.template en la raiz del entorno."
+        throw "No se encontro config\wezterm.lua.template en el entorno."
     }
     $wezConfigContent = Get-Content $wezTemplateFile -Raw
     $wezConfigContent = $wezConfigContent.Replace('@HOME_DIR_NAME@', $HomeDirName)

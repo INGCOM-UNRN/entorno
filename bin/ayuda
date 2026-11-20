@@ -83,7 +83,7 @@ fi
 if command -v gh >/dev/null 2>&1 && timeout 3 gh auth status >/dev/null 2>&1; then
     echo -e "${YELLOW}${BOLD}[ Higiene en computadoras compartidas ]${RESET}"
     echo -e "  * Hay una sesión de GitHub activa en este entorno. Si estás en un equipo"
-    echo -e "    ajeno, ejecutá ${GREEN}clean-shared-host.ps1${RESET} antes de retirarte para"
+    echo -e "    ajeno, ejecutá ${GREEN}herramientas/clean-shared-host.ps1${RESET} antes de retirarte para"
     echo -e "    borrar credenciales, historial y datos personales."
     echo ""
 fi

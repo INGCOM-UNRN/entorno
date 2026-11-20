@@ -3,7 +3,8 @@
 
 $ErrorActionPreference = "Stop"
 
-$portableRoot = $PSScriptRoot
+# Vive en herramientas\: la raiz del entorno es la carpeta padre
+$portableRoot = Split-Path -Parent $PSScriptRoot
 
 # Cargar configuracion de directorio HOME
 $homeDirName = "home"

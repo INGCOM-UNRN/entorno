@@ -5,7 +5,7 @@ $ErrorActionPreference = "Stop"
 $portableRoot = $PSScriptRoot
 
 # Logica compartida con launch.ps1 (advertencia de ruta, .env, sesion)
-Import-Module (Join-Path $portableRoot "env.common.psm1") -Force
+Import-Module (Join-Path $portableRoot "lib\env.common.psm1") -Force
 
 # Advertencia temprana ante espacios, caracteres no ASCII o carpetas sincronizadas
 $infoRuta = Test-ConflictivePath -Path $portableRoot

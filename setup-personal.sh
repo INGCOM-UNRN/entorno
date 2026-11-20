@@ -1,1 +1,0 @@
-unix/setup-personal.sh

@@ -5,7 +5,7 @@ $ErrorActionPreference = "Stop"
 $portableRoot = $PSScriptRoot
 
 # Logica compartida con launch-vscode.ps1 (advertencia de ruta, .env, sesion)
-Import-Module (Join-Path $portableRoot "env.common.psm1") -Force
+Import-Module (Join-Path $portableRoot "lib\env.common.psm1") -Force
 
 # Advertencia temprana ante espacios, caracteres no ASCII o carpetas sincronizadas
 $infoRuta = Test-ConflictivePath -Path $portableRoot
@@ -69,14 +69,14 @@ $env:WEZTERM_CONFIG_FILE = $wezConfigPath
 
 # Asegurar que wezterm.lua exista, generandolo desde la plantilla canonica unica
 if (-not (Test-Path $wezConfigPath)) {
-    $wezTemplateFile = Join-Path $portableRoot "wezterm.lua.template"
+    $wezTemplateFile = Join-Path $portableRoot "config\wezterm.lua.template"
     if (Test-Path $wezTemplateFile) {
         $wezConfigContent = Get-Content $wezTemplateFile -Raw
         $wezConfigContent = $wezConfigContent.Replace('@HOME_DIR_NAME@', $homeDirName)
         [System.IO.File]::WriteAllText($wezConfigPath, $wezConfigContent, $utf8NoBom)
         Write-Host "[INFO] wezterm.lua generado desde la plantilla canonica." -ForegroundColor Cyan
     } else {
-        Write-Warning "Falta wezterm.lua.template: no se pudo generar la configuracion de WezTerm."
+        Write-Warning "Falta config\wezterm.lua.template: no se pudo generar la configuracion de WezTerm."
     }
 } else {
     # Correccion minima para instalaciones historicas con MSYSTEM o rutas erroneas

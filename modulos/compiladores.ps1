@@ -4,7 +4,7 @@
 #
 # Es la parte pesada del entorno y por eso no forma parte de la base (setup.ps1): un
 # contexto que solo usa Python, git o las herramientas de la catedra no la necesita.
-# Lista de paquetes: packages-compiladores.txt (fuente unica compartida con bin/).
+# Lista de paquetes: config\packages-compiladores.txt (fuente unica compartida con bin/).
 #
 # Uso:
 #   instalar-compiladores.bat               (doble clic, o desde la consola: instalar compiladores)
@@ -46,7 +46,7 @@ if (-not $DesdeSetup) {
 try {
     Assert-FreeSpace -Path $portableRoot -RequiredGB 3 -Context "el modulo de compiladores"
 
-    $packages = Get-PackageList -Path (Join-Path $portableRoot "packages-compiladores.txt")
+    $packages = Get-PackageList -Path (Join-Path $portableRoot "config\packages-compiladores.txt")
     $pkgString = $packages -join " "
 
     # Espejo de pacman mas rapido (prioridad sudamericana para Red UNRN); se mide una sola
