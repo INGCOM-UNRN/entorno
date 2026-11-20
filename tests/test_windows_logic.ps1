@@ -77,7 +77,7 @@ $ComponentesImagenBase = & ([scriptblock]::Create($componentesAst.Right.Extent.T
 Assert-True "la imagen base trae msys64, mingit, python y wezterm" (@("msys64", "mingit", "python", "wezterm" | Where-Object { $ComponentesImagenBase -contains $_ }).Count -eq 4)
 Assert-True "la imagen base no trae .install_complete ni .msys_complete" (-not ($ComponentesImagenBase -contains ".install_complete") -and -not ($ComponentesImagenBase -contains ".msys_complete"))
 
-$RepoImagenes = "INGCOM-UNRN-P1/entorno"
+$RepoImagenes = "INGCOM-UNRN/entorno"
 . ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Get-ImagenRelease")))
 function Get-GitHubApiCached { param([string]$Url)
     $script:urlConsultada = $Url

@@ -17,7 +17,7 @@ echo -e "\e[36m=================================================================
 # 1. Actualizar los scripts locales
 echo -e "\n\e[33m[1/2] Descargando y actualizando scripts del repositorio...\e[0m"
 
-REPO_OWNER="INGCOM-UNRN-P1"
+REPO_OWNER="INGCOM-UNRN"
 REPO_NAME="entorno"
 # Canal de actualización configurable vía .env (ej: CHANNEL=estable-2026c1)
 BRANCH="main"

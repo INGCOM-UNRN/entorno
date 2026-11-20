@@ -9,7 +9,7 @@ perfil estudiante. Para usar el entorno desde una carpeta sin instalar nada, ver
 
 Abrí una terminal y pegá:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/INGCOM-UNRN-P1/entorno/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/INGCOM-UNRN/entorno/main/install.sh | bash
 ```
 
 El instalador no usa `sudo` ni instala paquetes del sistema (solo te sugiere el comando si falta
@@ -32,7 +32,7 @@ Durante la instalación te pregunta cómo integrarlo:
 
 Para instalar sin preguntas (o cambiar de modo más adelante), volvé a ejecutarlo con `--modo`:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/INGCOM-UNRN-P1/entorno/main/install.sh | bash -s -- --modo integrado
+curl -fsSL https://raw.githubusercontent.com/INGCOM-UNRN/entorno/main/install.sh | bash -s -- --modo integrado
 ```
 Reejecutar el instalador actualiza el entorno (`git pull`) y conserva `~/p1/dev` y `~/p1/entorno/local`.
 El instalador también instala las herramientas de la cátedra del perfil estudiante (ripley,

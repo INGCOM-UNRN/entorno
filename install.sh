@@ -2,7 +2,7 @@
 # install.sh - Instalador del entorno de Programación 1 para macOS y Linux.
 #
 # Uso recomendado (una sola línea en la terminal):
-#   curl -fsSL https://raw.githubusercontent.com/INGCOM-UNRN-P1/entorno/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/INGCOM-UNRN/entorno/main/install.sh | bash
 #
 # Con opciones (por ejemplo, sin preguntas):
 #   curl -fsSL .../install.sh | bash -s -- --modo integrado
@@ -51,7 +51,7 @@ main() {
     CYAN='\033[36m'; GREEN='\033[32m'; YELLOW='\033[33m'; RED='\033[31m'
     BOLD='\033[1m'; RESET='\033[0m'
 
-    local REPO_WEB="https://github.com/INGCOM-UNRN-P1/entorno"
+    local REPO_WEB="https://github.com/INGCOM-UNRN/entorno"
     local MODO="${P1_MODO:-}"
     local RAMA="${P1_RAMA:-main}"
     local SIN_HERRAMIENTAS="${P1_SIN_HERRAMIENTAS:-0}"

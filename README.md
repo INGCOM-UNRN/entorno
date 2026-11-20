@@ -12,7 +12,7 @@ En PowerShell, dentro de una carpeta vacía y sin espacios ni acentos en la ruta
 ejemplo `C:\dev\entorno`):
 
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/INGCOM-UNRN-P1/entorno/main/install.ps1 | iex
+Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/INGCOM-UNRN/entorno/main/install.ps1 | iex
 ```
 
 Instala la **base** (consola WezTerm con bash, Git, Python con uv, GitHub CLI, jonesy y
@@ -25,7 +25,7 @@ Guía completa: [Instalación en Windows](docs/instalacion/windows.md).
 ### macOS y Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/INGCOM-UNRN-P1/entorno/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/INGCOM-UNRN/entorno/main/install.sh | bash
 ```
 
 Instala en `~/p1/entorno`, con espacio de trabajo `~/p1/dev`, sin `sudo`. El compilador y

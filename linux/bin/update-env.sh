@@ -13,7 +13,7 @@ if [ -z "${PORTABLE_ROOT:-}" ]; then
     exit 1
 fi
 
-REPO_OWNER="INGCOM-UNRN-P1"
+REPO_OWNER="INGCOM-UNRN"
 REPO_NAME="entorno"
 # Canal de actualización configurable vía .env (ej: CHANNEL=estable-2026c1)
 BRANCH="main"

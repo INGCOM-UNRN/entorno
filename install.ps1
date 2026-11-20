@@ -1,6 +1,6 @@
 # install.ps1 - Bootstrap para el Entorno Portable
 # Este archivo esta guardado en ASCII sin BOM para poder ejecutarse directamente desde internet:
-# irm https://raw.githubusercontent.com/INGCOM-UNRN-P1/entorno/main/install.ps1 | iex
+# irm https://raw.githubusercontent.com/INGCOM-UNRN/entorno/main/install.ps1 | iex
 #
 # Corre dentro de la ventana de PowerShell del usuario (iex): por eso nunca usa 'exit', que
 # cerraria esa ventana, y todo va dentro de un bloque para no dejar cambiadas variables ni
@@ -10,7 +10,7 @@
     $ErrorActionPreference = "Stop"
     # Acelerar Invoke-RestMethod/WebRequest en Windows PowerShell 5.1
     $ProgressPreference = "SilentlyContinue"
-    $setupUrl = "https://raw.githubusercontent.com/INGCOM-UNRN-P1/entorno/main/setup.ps1"
+    $setupUrl = "https://raw.githubusercontent.com/INGCOM-UNRN/entorno/main/setup.ps1"
     $destPath = Join-Path (Get-Location).Path "setup.ps1"
 
     Write-Host "Descargando script principal de instalacion..." -ForegroundColor Cyan

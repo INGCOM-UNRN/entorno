@@ -20,7 +20,7 @@ interno. Para el uso cotidiano, ver las [guías de uso](../README.md#uso).
 * **Canal de scripts:** En instalaciones standalone, la variable `CHANNEL=<rama-o-tag>` dentro de `.env` define desde qué canal se descargan los scripts; en repos Git rige la rama local (`git pull`).
 * **Funcionamiento Interno:**
   1. Valida si la ruta de instalación posee espacios o caracteres no ASCII.
-  2. Descarga el snapshot ZIP más reciente del repositorio de GitHub (`INGCOM-UNRN-P1/entorno`) y extrae los scripts en la raíz y carpetas de utilidad.
+  2. Descarga el snapshot ZIP más reciente del repositorio de GitHub (`INGCOM-UNRN/entorno`) y extrae los scripts en la raíz y carpetas de utilidad.
   3. **Imagen base:** en una instalación nueva, descarga `entorno-base-windows-x64.zip` del release (último o el tag `imagen` de `config/versions.json`), lo verifica contra su `SHA256SUMS` y mueve sus componentes al entorno; registra el tag en `.imagen`. Los pasos siguientes encuentran esos componentes instalados y solo completan lo que falte.
   4. **Base:** comprueba, descarga e inicializa MSYS2 (`msys64/`) sin usar pacman, y descarga MinGit (`mingit/`) como git de la base, verificado con el digest SHA-256 de la API de GitHub.
   5. **Base:** descarga `uv` como binario standalone (`bin/uv.exe`, verificado contra el `.sha256` publicado) e instala con él el Python de la base en `python/` (versión menor en `config/versions.json`, clave `python`) más las dependencias de `config/requirements-base.txt` (typer y rich para Ripley). Cache, intérpretes y herramientas de uv quedan dentro del entorno.

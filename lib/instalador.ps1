@@ -353,7 +353,7 @@ function Wait-AntesDeCerrar {
 #   SHA256SUMS
 # setup.ps1 usa la imagen base en una instalacion nueva (una descarga en lugar de una por
 # componente) y modulos\compiladores.ps1 usa la capa si la base vino de la misma imagen.
-$RepoImagenes = "INGCOM-UNRN-P1/entorno"
+$RepoImagenes = "INGCOM-UNRN/entorno"
 $NombreImagenBase = "entorno-base-windows-x64.zip"
 $NombreImagenCompiladores = "entorno-compiladores-windows-x64.zip"
 # Lo que la imagen base aporta a una instalacion (fuente unica para el armado y el uso).

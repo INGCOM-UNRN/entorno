@@ -69,7 +69,7 @@ cd entorno
 Copiá la línea completa, pegala en la consola y presioná `Enter`:
 
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/INGCOM-UNRN-P1/entorno/main/install.ps1 | iex
+Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/INGCOM-UNRN/entorno/main/install.ps1 | iex
 ```
 
 ![Ejecución del comando de instalación en PowerShell](../capturas/4_instalacion.png)
@@ -159,7 +159,7 @@ al archivo `.env` de la carpeta (ver [Configuración](../referencia/configuracio
 ## Instalación sin internet
 
 **Con las imágenes del release** (la forma más simple): descargá de la página de
-[releases](https://github.com/INGCOM-UNRN-P1/entorno/releases) `entorno-base-windows-x64.zip`
+[releases](https://github.com/INGCOM-UNRN/entorno/releases) `entorno-base-windows-x64.zip`
 y, si hace falta compilar, `entorno-compiladores-windows-x64.zip`. En la máquina destino
 descomprimí los dos **en la misma carpeta** (primero la base) y abrí `launch.bat`. Ejecutá
 `doctor --fix` una vez para registrar los módulos presentes.

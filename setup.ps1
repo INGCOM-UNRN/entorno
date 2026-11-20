@@ -226,7 +226,7 @@ try {
         Write-Host "=== Comprobando actualizaciones de los scripts del entorno ===" -ForegroundColor Cyan
         
         $didUpdate = $false
-        $repoOwner = "INGCOM-UNRN-P1"
+        $repoOwner = "INGCOM-UNRN"
     $repoName = "entorno"
     # Canal de actualizacion configurable via .env (ej: CHANNEL=estable-2026c1).
     # Solo aplica a instalaciones standalone; en repos Git rige la rama local.
