@@ -7,23 +7,33 @@ Este documento provee una referencia técnica exhaustiva, script por script, det
 ## 1. Scripts Principales en la Raíz
 
 ### `setup.ps1`
-* **Propósito:** Automatiza la instalación inicial, reparación, actualización y empaquetado inicial de las herramientas del entorno.
-* **Uso:** `powershell -File setup.ps1 [-ImportHostConfig] [-SkipUpdate] [-Yes] [-Latest]`
+* **Propósito:** Instala, repara y actualiza la **base** del entorno y coordina los **módulos opcionales** (compiladores y VS Code).
+* **Uso:** `powershell -File setup.ps1 [-ImportHostConfig] [-SkipUpdate] [-Yes] [-Latest] [-Modulos <lista>]`
 * **Parámetros:**
   * `-ImportHostConfig`: Si se pasa este modificador, copia la clave SSH privada, la configuración global de Git (`.gitconfig`) y el archivo `settings.json` de la instalación de VS Code del host local hacia el directorio `home/` portable.
   * `-SkipUpdate`: Saltea la fase de autodescarga e instalación de scripts actualizados de GitHub. Útil cuando se ejecuta localmente durante tareas de depuración o de actualización fuera de línea.
   * `-Yes`: Modo desatendido: acepta automáticamente todas las preguntas (actualizaciones de componentes, advertencia de ruta conflictiva). Pensado para despliegues masivos en laboratorios.
   * `-Latest`: Ignora los pines de `versions.json` e instala las últimas versiones disponibles de cada componente. Por defecto el manifiesto manda (reproducibilidad por cuatrimestre); los fallbacks también viven en el manifiesto.
+  * `-Modulos <lista>`: Módulos opcionales a instalar después de la base: `compiladores`, `vscode`, `todos` o `ninguno` (se aceptan varios separados por coma). Sin el parámetro, una instalación nueva pregunta por cada módulo (con `-Yes` instala todos, como antes) y una actualización actualiza solo los módulos ya instalados.
 * **Canal de scripts:** En instalaciones standalone, la variable `CHANNEL=<rama-o-tag>` dentro de `.env` define desde qué canal se descargan los scripts; en repos Git rige la rama local (`git pull`).
 * **Funcionamiento Interno:**
   1. Valida si la ruta de instalación posee espacios o caracteres no ASCII.
   2. Descarga el snapshot ZIP más reciente del repositorio de GitHub (`INGCOM-UNRN-P1/entorno`) y extrae los scripts en la raíz y carpetas de utilidad.
-  3. Comprueba, descarga e inicializa el subsistema MSYS2 (`msys64/`).
-  4. Ejecuta `pacman` para instalar de forma desatendida las herramientas de C (gcc, make, cmake, ninja, cppcheck, gdb, clang, doxygen) y Python 3.
-  5. Descarga la versión de archivo ZIP de VS Code estable, la descomprime y crea la carpeta `vscode/data/` para habilitar el modo portable de manera nativa.
-  6. Configura el archivo `settings.json` de VS Code para enlazar UCRT64 Bash como perfil por defecto.
-  7. Descarga la versión de GitHub CLI (`gh`) y WezTerm y los descomprime localmente.
-  8. Genera los marcadores de verificación de instalación (`.msys_complete`, `.vscode_complete`, `.wezterm_complete`).
+  3. **Base:** comprueba, descarga e inicializa MSYS2 (`msys64/`), sincroniza pacman e instala solo `packages-base.txt` (git).
+  4. **Base:** descarga `uv` como binario standalone (`bin/uv.exe`, verificado contra el `.sha256` publicado) e instala con él el Python de la base en `python/` (versión menor en `versions.json`, clave `python`) más las dependencias de `requirements-base.txt` (typer y rich para Ripley). Cache, intérpretes y herramientas de uv quedan dentro del entorno.
+  5. **Base:** descarga GitHub CLI (`gh`), jonesy, WezTerm y el zipapp `ripley.pyz`.
+  6. **Módulos:** ejecuta los módulos elegidos (ver `-Modulos`). Si un módulo falla, la base queda instalada y el módulo se reintenta con `instalar-<módulo>.bat`.
+  7. Genera los marcadores de verificación (`.install_complete` para la base, `.msys_complete`, `.gh_complete`, `.wezterm_complete`; los módulos agregan `.compiladores_complete` y `.vscode_complete`).
+* **Funciones compartidas:** las descargas con reintentos, la caché de la API de GitHub, los pines de `versions.json`, pacman con reintentos y la verificación SHA-256 viven en `lib/instalador.ps1`, que cargan `setup.ps1` y los módulos.
+
+---
+
+### Módulos opcionales: `modulos/compiladores.ps1` y `modulos/vscode.ps1`
+* **Propósito:** Separar de la base las descargas grandes que no todos los contextos necesitan.
+* **Uso:** `instalar-compiladores.bat` / `instalar-vscode.bat` (doble clic), `instalar compiladores|vscode` desde la consola del entorno, o `setup.ps1 -Modulos ...`.
+* **`compiladores`:** sincroniza y actualiza pacman (`-Syu` y `-Su`) e instala `packages-compiladores.txt` (toolchain GCC/GDB/make, cmake, ninja, cppcheck, clang-tools-extra, doxygen y librerías comunes); crea `make.exe` en `ucrt64/bin`. Es idempotente. Requiere la base instalada.
+* **`vscode`:** descarga VS Code en modo portable (`vscode/data/`), configura `settings.json` (UCRT64 Bash como terminal, telemetría e IA desactivadas) e instala las extensiones de `versions.json`. Con `-Actualizar` busca una versión nueva (lo pasa `setup.ps1` en modo actualización); `-Yes` y `-Latest` como en `setup.ps1`.
+* **Ejecutados por separado** dejan su propio log (`modulo-compiladores.log`, `modulo-vscode.log`); desde `setup.ps1` escriben en `install.log`.
 * **Salidas:** Generación de archivos de estado y el archivo de log central `install.log`.
 
 ---
@@ -35,7 +45,7 @@ Este documento provee una referencia técnica exhaustiva, script por script, det
   2. El script `.ps1` calcula de forma dinámica el directorio raíz portable (`PORTABLE_ROOT`) y carga la configuración personalizada de directorio local de usuario desde `.env` (por defecto `home/`).
   3. Prepara el entorno inicializando los archivos de perfil `.bashrc` y `.bash_profile` en el HOME portable si no existen.
   4. Inyecta y exporta las variables de entorno locales de sesión (`PORTABLE_ROOT`, `HOME`, `MSYSTEM = UCRT64`, `CHERE_INVOKING = 1`, `LANG = es_AR.UTF-8`).
-  5. Prepende al `PATH` de sesión las carpetas de compilación y scripts locales (`bin;msys64\ucrt64\bin;msys64\usr\bin`).
+  5. Prepende al `PATH` de sesión las carpetas de scripts locales, el Python de la base y el compilador (`bin;python\<cpython>;python\<cpython>\Scripts;msys64\ucrt64\bin;msys64\usr\bin`), exporta `MSYS2_PATH_TYPE=inherit` para que bash herede ese PATH y confina uv al entorno (`UV_CACHE_DIR`, `UV_PYTHON_INSTALL_DIR`, `UV_TOOL_DIR`...).
   6. Define variables específicas de compiladores de C/C++ (`CC=gcc`, `CXX=g++`, `PKG_CONFIG_PATH`, `CMAKE_PREFIX_PATH`).
   7. Sanea o genera el archivo `wezterm.lua` para asegurar que WezTerm levante MSYS2 Bash de forma nativa apuntando a las rutas dinámicas.
   8. Lanza `wezterm-gui.exe` / `wezterm.exe`. Si WezTerm no está disponible, cae de vuelta de forma segura lanzando `bash.exe` en la consola clásica de Windows para evitar bloqueos del alumno.
@@ -126,7 +136,7 @@ Este documento provee una referencia técnica exhaustiva, script por script, det
 
 ### `download-baseline.sh`
 * **Propósito:** Precargar caché de pacman para instalaciones offline.
-* **Funcionamiento:** Ejecuta `pacman -Sw` para descargar localmente a `descargas/pacman_cache` todos los paquetes definidos en `packages-baseline.txt` (fuente única compartida con setup.ps1).
+* **Funcionamiento:** Ejecuta `pacman -Sw` para descargar localmente a `descargas/pacman_cache` los paquetes de `packages-base.txt` y `packages-compiladores.txt` (fuentes únicas compartidas con setup.ps1 y el módulo de compiladores).
 
 ### `nuevo-proyecto [--tipo plano|tp|lib] <nombre>`
 * **Propósito:** Crear la estructura inicial de un proyecto de cátedra.
@@ -175,7 +185,7 @@ Este documento provee una referencia técnica exhaustiva, script por script, det
 
 ### `update-packages.sh`
 * **Propósito:** Actualización unificada de paquetes del entorno (MSYS2).
-* **Funcionamiento:** Sincroniza la base de pacman, actualiza el sistema y garantiza el baseline completo leyendo `packages-baseline.txt`, usando `descargas/pacman_cache` como caché portátil.
+* **Funcionamiento:** Sincroniza la base de pacman, actualiza el sistema y garantiza los paquetes de `packages-base.txt` y, si el módulo de compiladores está instalado, los de `packages-compiladores.txt`, usando `descargas/pacman_cache` como caché portátil.
 
 ### `smoke.sh`
 * **Propósito:** Automatizar las pruebas de aceptación sin GUI del plan.md (A, B, C, E-local, F-check).

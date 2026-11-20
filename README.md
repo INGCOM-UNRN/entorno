@@ -64,7 +64,9 @@ En la carpeta [`docs/`](docs/) disponés de guías completas detalladas:
 
 El repositorio está organizado para separar las herramientas ejecutables del host de las configuraciones y scripts de inicialización:
 
-*   [`setup.ps1`](setup.ps1): Script de PowerShell para instalar, regenerar y actualizar el entorno, VS Code y WezTerm. Al ejecutarse, actualiza automáticamente todos los scripts del entorno a la última versión (vía Git pull o descargándolos de GitHub) y luego actualiza los componentes instalados. Valida la ruta de instalación y genera el registro `install.log` para troubleshooting.
+*   [`setup.ps1`](setup.ps1): Script de PowerShell para instalar, regenerar y actualizar la **base** del entorno (MSYS2, uv, Python, gh, jonesy, WezTerm, Ripley) y coordinar los módulos opcionales. Al ejecutarse, actualiza automáticamente todos los scripts del entorno a la última versión (vía Git pull o descargándolos de GitHub) y luego actualiza los componentes instalados. Valida la ruta de instalación y genera el registro `install.log` para troubleshooting.
+*   [`modulos/`](modulos/): Módulos opcionales que se instalan aparte de la base: [`compiladores.ps1`](modulos/compiladores.ps1) (gcc, gdb, make, cmake y herramientas de análisis) y [`vscode.ps1`](modulos/vscode.ps1) (VS Code portable y extensiones). Se lanzan con `instalar-compiladores.bat` / `instalar-vscode.bat` o con el comando `instalar` desde la consola.
+*   [`lib/instalador.ps1`](lib/instalador.ps1): Funciones compartidas por `setup.ps1` y los módulos (descargas con reintentos, caché de la API de GitHub, pines de `versions.json`, pacman, SHA-256).
 *   [`package-env.ps1`](package-env.ps1): Script de PowerShell para empaquetar el entorno completo inicializado en un archivo ZIP para distribución offline.
 *   [`clean-shared-host.ps1`](clean-shared-host.ps1): Script de PowerShell para eliminar credenciales, historial de consola y configuraciones personales al trabajar en una máquina pública o compartida. Restablece VS Code a la configuración por defecto (incluyendo terminal en UCRT64 Bash).
 *   [`desinstalar.ps1`](desinstalar.ps1): Elimina por completo los componentes generados del entorno (MSYS2, VS Code, WezTerm, HOME portable), conservando los scripts del repositorio.
@@ -81,7 +83,8 @@ El repositorio está organizado para separar las herramientas ejecutables del ho
 *   [`bin/verificar`](bin/verificar): Corrector local: delega en `ripley check .` si el proyecto declara un manifiesto Ripley, o compara la salida del programa contra los casos `tests/caso_NN.in/.out` en modo clásico (agregado al PATH).
 *   [`bin/doctor`](bin/doctor): Verificación rápida de salud del entorno: compila un programa mínimo y valida herramientas e identidad de Git (agregado al PATH).
 *   [`bin/smoke.sh`](bin/smoke.sh): Automatiza las pruebas de aceptación sin GUI del plan (compilación C+cppcheck, Python aislado, CMake+Ninja, librerías con manifiesto). Wrapper `smoke.ps1` en la raíz.
-*   [`bin/update-packages.sh`](bin/update-packages.sh): Actualiza pacman y garantiza el baseline leyendo `packages-baseline.txt` (agregado al PATH).
+*   [`bin/instalar`](bin/instalar): Instala un módulo opcional desde la consola (`instalar compiladores`, `instalar vscode`); abre el instalador en una ventana aparte (agregado al PATH).
+*   [`bin/update-packages.sh`](bin/update-packages.sh): Actualiza pacman y garantiza los paquetes de `packages-base.txt` y, si el módulo está instalado, de `packages-compiladores.txt` (agregado al PATH).
 *   [`install-offline.ps1`](install-offline.ps1): Instala el paquete `portable-env-offline.zip` con extracción acelerada y validación estructural (sin internet ni permisos especiales).
 *   [`bin/ayuda`](bin/ayuda): Script de Bash (ejecutable como comando `ayuda`) que muestra una guía de referencia rápida sobre los comandos y herramientas del entorno portable (agregado al PATH).
 *   [`bin/build-launcher.sh`](bin/build-launcher.sh): Script de Bash para descargar y compilar los lanzadores ejecutables del repositorio (`.exe`) desde las fuentes de GitHub (agregado al PATH).
@@ -101,11 +104,13 @@ El repositorio está organizado para separar las herramientas ejecutables del ho
 *   [AGENTS.md](AGENTS.md): Directrices normativas para agentes de desarrollo (commits semánticos, aislamiento del host, UCRT64). GEMINI.md se mantiene como stub de compatibilidad.
 *   [versions.json](versions.json): Manifiesto de versiones por cuatrimestre (URLs pineadas de MSYS2/VS Code/gh/WezTerm y versiones de extensiones). `null` = última disponible; el flag `-Latest` lo ignora.
 *   **Integridad de lo que se descarga de la cátedra:** `mother.pyz`, `ripley.pyz` y el binario de jonesy se comparan con el `SHA256SUMS` publicado en su mismo release antes de usarlos (`install.sh`, `unix/setup-personal.sh`, `setup.ps1` y `bin/update-env.sh`). Si la suma no coincide o no se puede comprobar, la instalación se cancela con la suma esperada y la descargada. Para un espejo propio, la suma esperada se puede dar con `P1_MOTHER_SHA256` / `P1_JONESY_SHA256` (Unix) o con `ripley_sha256` / `jonesy_sha256` en `versions.json` (Windows).
-*   [packages-baseline.txt](packages-baseline.txt): Fuente única de paquetes pacman del entorno, compartida por setup.ps1 y download-baseline.sh.
+*   [packages-base.txt](packages-base.txt) y [packages-compiladores.txt](packages-compiladores.txt): Fuentes únicas de paquetes pacman de la base y del módulo de compiladores, compartidas por los instaladores y `download-baseline.sh` / `update-packages.sh`.
+*   [requirements-base.txt](requirements-base.txt): Dependencias Python que `setup.ps1` instala con uv en el Python de la base (las que necesita `ripley.pyz`).
 *   VERSION: Versión actual del entorno, visible en `ayuda`, el diagnóstico y el log de instalación.
 *   [mejoras-y-problemas.md](mejoras-y-problemas.md): Análisis vivo de mejoras implementadas y pendientes.
 *   `home/`: Directorio local que actúa como `$HOME` del usuario. Evita contaminar la carpeta del sistema host. (Creado al inicializar).
 *   `msys64/`: Carpeta contenedora de MSYS2 y binarios (excluida en `.gitignore`).
+*   `python/`: Python de la base instalado con uv (excluida en `.gitignore`).
 *   `vscode/`: Carpeta contenedora del editor y configuraciones locales (excluida en `.gitignore`).
 *   `wezterm/`: Carpeta contenedora de la terminal WezTerm (excluida en `.gitignore`).
 
@@ -120,6 +125,16 @@ El repositorio está organizado para separar las herramientas ejecutables del ho
 ---
 
 ## Instalación e Inicialización (Online)
+
+La instalación en Windows tiene dos fases, para que el entorno se pueda usar rápido y en contextos que no compilan C:
+
+| Fase | Qué instala | Cómo |
+|---|---|---|
+| **Base** | MSYS2 (bash, git), **uv**, **Python** con las dependencias de las herramientas de la cátedra, GitHub CLI, jonesy, WezTerm, Ripley | `setup.ps1` |
+| **Módulo `compiladores`** | gcc, gdb, make, cmake, ninja, cppcheck, clang-format/clang-tidy, doxygen (descarga grande, vía pacman) | al final de `setup.ps1`, o después con `instalar-compiladores.bat` / `instalar compiladores` |
+| **Módulo `vscode`** | VS Code portable con las extensiones de C/C++ y Python | al final de `setup.ps1`, o después con `instalar-vscode.bat` / `instalar vscode` |
+
+Al terminar la base, `setup.ps1` pregunta por cada módulo (Enter = sí). Para elegir sin preguntas: `.\setup.ps1 -Modulos ninguno` (solo la base), `-Modulos compiladores`, `-Modulos compiladores,vscode` o `-Modulos todos`. Con `-Yes` y sin `-Modulos` se instala todo, como en versiones anteriores. La consola avisa (`ayuda`) qué módulos faltan.
 
 Tenés dos opciones para realizar la instalación inicial:
 
@@ -148,7 +163,7 @@ Este script descargará el instalador principal (`setup.ps1`) con el formato cor
    Set-ExecutionPolicy Bypass -Scope Process -Force; .\setup.ps1 -ImportHostConfig
    ```
    *(También podés combinar ambos parámetros: `.\setup.ps1 -HomeDirName "developer" -ImportHostConfig`)*
-   *Parámetros adicionales:* `-Yes` ejecuta todo sin preguntas interactivas (ideal para laboratorios); `-Latest` ignora los pines de `versions.json` e instala las últimas versiones disponibles. Para congelar la versión de *scripts* durante el cuatrimestre, definí `CHANNEL=<tag-o-rama>` en tu `.env`.
+   *Parámetros adicionales:* `-Yes` ejecuta todo sin preguntas interactivas (ideal para laboratorios); `-Latest` ignora los pines de `versions.json` e instala las últimas versiones disponibles; `-Modulos` elige los módulos opcionales (ver la tabla de arriba). Para congelar la versión de *scripts* durante el cuatrimestre, definí `CHANNEL=<tag-o-rama>` en tu `.env`.
 
 ---
 
@@ -377,8 +392,8 @@ install-lib.sh mi-usuario/mi-libreria-matematica
 
 ## Regeneración y Actualizaciones Rápidas
 
-*   **Para actualizar todo el entorno (paquetes, VS Code y WezTerm):** Volvé a ejecutar `setup.ps1`. El script respetará tu carpeta `vscode/data` (donde se guardan tus extensiones y configuraciones) actualizando únicamente la base del editor. Los pines de `versions.json` garantizan que todos obtengan las mismas versiones dentro del cuatrimestre; usá `-Latest` para saltearlos.
-*   **Para regenerar el entorno de cero:** Borrá las carpetas `msys64`, `vscode` y `wezterm` (o ejecutá `desinstalar.ps1`), resguardando `vscode/data` si querés conservar la configuración del editor, y volvé a ejecutar `setup.ps1`.
+*   **Para actualizar todo el entorno (base y módulos instalados):** Volvé a ejecutar `setup.ps1`. Actualiza la base y los módulos opcionales que ya tengas; los que no instalaste no se agregan (para eso: `instalar-<módulo>.bat`). El script respetará tu carpeta `vscode/data` (donde se guardan tus extensiones y configuraciones) actualizando únicamente la base del editor. Los pines de `versions.json` garantizan que todos obtengan las mismas versiones dentro del cuatrimestre; usá `-Latest` para saltearlos.
+*   **Para regenerar el entorno de cero:** Borrá las carpetas `msys64`, `python`, `vscode` y `wezterm` (o ejecutá `desinstalar.ps1`), resguardando `vscode/data` si querés conservar la configuración del editor, y volvé a ejecutar `setup.ps1`.
 
 ## Contacto
 
