@@ -468,79 +468,26 @@ try {
                     throw "No se pudo encontrar la carpeta extraida '$repoName-$branch' en el archivo zip."
                 }
                 
-                $filesToCopy = @(
-                    "setup.ps1",
-                    "launch.bat",
-                    "launch.ps1",
-                    "env.common.psm1",
-                    "launch-vscode.bat",
-                    "launch-vscode.ps1",
-                    "clean-shared-host.ps1",
-                    "customize-terminal.ps1",
-                    "customize-terminal.bat",
-                    "package-env.ps1",
-                    "bin/ayuda",
-                    "bin/install-lib.sh",
-                    "bin/build-launcher.sh",
-                    "bin/customize-bash.sh",
-                    "bin/update-env.sh",
-                    "bin/configure-git.sh",
-                    "bin/download-baseline.sh",
-                    "bin/diagnose-env.sh",
-                    "bin/uninstall-lib.sh",
-                    "bin/update-packages.sh",
-                    "bin/smoke.sh",
-                    "smoke.ps1",
-                    "install-offline.ps1",
-                    "bin/nuevo-proyecto",
-                    "bin/ripley",
-                    "config/gdb/gdbinit",
-                    "bin/backup",
-                    "bin/restaurar",
-                    "bin/entregar",
-                    "bin/doctor",
-                    "README.md",
-                    "plan.md",
-                    "GEMINI.md",
-                    "docs/entorno.md",
-                    "docs/casos-de-uso.md",
-                    "docs/scripts.md",
-                    "docs/compilacion-gcc.md",
-                    "docs/images/arquitectura_entorno.svg",
-                    "docs/images/flujo_compilacion.svg",
-                    "linux/activate.sh",
-                    "linux/bootstrap.sh",
-                    "linux/bin/ayuda",
-                    "linux/bin/configure-git.sh",
-                    "linux/bin/customize-terminal.sh",
-                    "linux/bin/install-lib.sh",
-                    "linux/bin/ripley",
-                    "linux/bin/uninstall-lib.sh",
-                    "packages-baseline.txt",
-                    "VERSION",
-                    "versions.json",
-                    "wezterm.lua.template"
-                )
-                
-                foreach ($file in $filesToCopy) {
-                    $srcPath = Join-Path $extractedRepoDir $file
-                    $destPath = Join-Path $portableRoot $file
-                    if (Test-Path $srcPath) {
-                        # Asegurar directorio destino
-                        $parentDir = Split-Path -Parent $destPath
-                        if (-not (Test-Path $parentDir)) {
-                            New-Item -ItemType Directory -Path $parentDir | Out-Null
-                        }
-                        # Copiar archivo
-                        Copy-Item -Path $srcPath -Destination $destPath -Force
-                        # Los scripts PS son ASCII puro: quitar el BOM que traigan versiones anteriores
-                        if ($file -like "*.ps1" -or $file -like "*.psm1") {
-                            $content = [System.IO.File]::ReadAllText($destPath, [System.Text.Encoding]::UTF8)
-                            [System.IO.File]::WriteAllText($destPath, $content, $utf8NoBom)
-                        }
+                # Se copia el snapshot completo del repositorio: solo contiene archivos versionados
+                # (nunca msys64, vscode, python, el HOME portable ni descargas), asi que cualquier
+                # script nuevo llega sin mantener una lista a mano.
+                $extractedRepoFull = (Resolve-Path $extractedRepoDir).Path.TrimEnd('\', '/')
+                foreach ($srcItem in @(Get-ChildItem -Path $extractedRepoFull -Recurse -File -Force)) {
+                    $relativePath = $srcItem.FullName.Substring($extractedRepoFull.Length + 1)
+                    if ($relativePath -like ".github*") { continue }
+                    $destPath = Join-Path $portableRoot $relativePath
+                    $parentDir = Split-Path -Parent $destPath
+                    if (-not (Test-Path $parentDir)) {
+                        New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
+                    }
+                    Copy-Item -Path $srcItem.FullName -Destination $destPath -Force
+                    # Los scripts PS son ASCII puro: quitar el BOM que traigan versiones anteriores
+                    if ($relativePath -like "*.ps1" -or $relativePath -like "*.psm1") {
+                        $content = [System.IO.File]::ReadAllText($destPath, [System.Text.Encoding]::UTF8)
+                        [System.IO.File]::WriteAllText($destPath, $content, $utf8NoBom)
                     }
                 }
-                
+
                 Write-Host "Actualizacion de scripts completada con exito.`n" -ForegroundColor Green
                 $didUpdate = $true
             } catch {
