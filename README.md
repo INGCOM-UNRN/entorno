@@ -16,7 +16,7 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercont
 ```
 
 Instala la **base** (consola WezTerm con bash, Git, Python con uv, GitHub CLI, jonesy y
-Ripley) y ofrece los **módulos opcionales**: `compiladores` (gcc, gdb, make, cmake y
+Ripley), en una sola descarga desde la imagen precompilada del último release, y ofrece los **módulos opcionales**: `compiladores` (gcc, gdb, make, cmake y
 herramientas de análisis) y `vscode`. Los módulos se pueden agregar después con
 `instalar-compiladores.bat` / `instalar-vscode.bat`. Después, abrí la consola con `launch.bat`.
 

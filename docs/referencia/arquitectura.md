@@ -52,12 +52,33 @@ Después `launch.ps1` genera `wezterm.lua` desde `config/wezterm.lua.template` y
 (o bash en la consola clásica si WezTerm falta); `launch-vscode.ps1` ajusta en
 `settings.json` la ruta del compilador y abre VS Code.
 
+## Imágenes precompiladas
+
+El workflow `release-imagenes.yml` (al publicar un tag `v*`) instala el entorno en un runner
+de Windows y publica en el release:
+
+| Archivo | Contenido |
+|---|---|
+| `entorno-base-windows-x64.zip` | Scripts del tag + componentes de la base instalados. Se puede descomprimir y usar sin internet. |
+| `entorno-compiladores-windows-x64.zip` | Capa de `msys64/`: los archivos que agregó o cambió el módulo de compiladores, incluida la base de datos de pacman. |
+| `SHA256SUMS` | Sumas de los dos archivos. |
+
+`setup.ps1` usa la imagen base en una instalación nueva (salvo `-SinImagen` o `-Latest`) y
+registra el tag en `.imagen`. El módulo de compiladores usa la capa **solo si** la base vino
+de la imagen del mismo release: la capa es la diferencia respecto de esa base exacta y sobre
+otra podría mezclar versiones. En cualquier otro caso instala con pacman.
+
+Las imágenes no incluyen el HOME portable, el HOME de MSYS2 del runner, temporales, la
+caché de pacman ni el llavero de pacman (`etc/pacman.d/gnupg`): su clave privada quedaría
+publicada y compartida por todos; MSYS2 lo regenera en el primer inicio.
+
 ## Instalación y actualización
 
 * `install.ps1` (la línea de `irm ... | iex`) descarga `setup.ps1` y lo ejecuta.
 * `setup.ps1` primero se actualiza: `git pull` si la carpeta es un repositorio, o descarga
-  del snapshot del canal configurado (`CHANNEL` en `.env`). Después instala o actualiza la
-  base y ejecuta los módulos elegidos (`modulos/compiladores.ps1`, `modulos/vscode.ps1`).
+  del snapshot del canal configurado (`CHANNEL` en `.env`). Después instala la imagen base
+  (si es una instalación nueva), instala o actualiza lo que falte de la base y ejecuta los
+  módulos elegidos (`modulos/compiladores.ps1`, `modulos/vscode.ps1`).
 * `lib/instalador.ps1` reúne lo común a la base y los módulos: descargas con reintentos,
   caché de la API de GitHub (para el límite por IP de las aulas), pines de
   `versions.json`, pacman con reintentos, elección de espejo y verificación SHA-256.
@@ -66,6 +87,7 @@ Verificación de lo que se descarga:
 
 | Artefacto | Contra qué se verifica |
 |---|---|
+| Imágenes precompiladas | `SHA256SUMS` del mismo release |
 | MSYS2 | `.sha256` publicado junto al instalador |
 | uv | `.sha256` publicado por Astral |
 | MinGit | digest SHA-256 de la API de GitHub, o `mingit_sha256` |

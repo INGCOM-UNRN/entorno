@@ -32,7 +32,7 @@ function Assert-True {
 # ============================================================
 # 0. Los scripts del instalador parsean sin errores (base, lib y modulos)
 # ============================================================
-foreach ($rel in @("setup.ps1", "lib/instalador.ps1", "modulos/compiladores.ps1", "modulos/vscode.ps1")) {
+foreach ($rel in @("setup.ps1", "install.ps1", "lib/instalador.ps1", "modulos/compiladores.ps1", "modulos/vscode.ps1", "herramientas/construir-imagenes.ps1")) {
     $parseErrs = $null
     [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $RepoRoot $rel), [ref]$null, [ref]$parseErrs) | Out-Null
     Assert-True "$rel parsea sin errores" (-not $parseErrs)
@@ -67,6 +67,30 @@ try {
 } finally {
     $env:CI = $prevCI
 }
+
+# Imagenes precompiladas: la base no trae los marcadores que setup.ps1 completa en la maquina
+# del usuario, y Get-ImagenRelease resuelve tag y URLs desde la API (aca, simulada).
+$libTexto = Get-Content -Raw $LibPath
+$componentesAst = [System.Management.Automation.Language.Parser]::ParseInput($libTexto, [ref]$null, [ref]$null).FindAll({ param($n)
+    $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$ComponentesImagenBase' }, $true) | Select-Object -First 1
+$ComponentesImagenBase = & ([scriptblock]::Create($componentesAst.Right.Extent.Text))
+Assert-True "la imagen base trae msys64, mingit, python y wezterm" (@("msys64", "mingit", "python", "wezterm" | Where-Object { $ComponentesImagenBase -contains $_ }).Count -eq 4)
+Assert-True "la imagen base no trae .install_complete ni .msys_complete" (-not ($ComponentesImagenBase -contains ".install_complete") -and -not ($ComponentesImagenBase -contains ".msys_complete"))
+
+$RepoImagenes = "INGCOM-UNRN-P1/entorno"
+. ([scriptblock]::Create((Get-FunctionFromScript -Path $LibPath -Name "Get-ImagenRelease")))
+function Get-GitHubApiCached { param([string]$Url)
+    $script:urlConsultada = $Url
+    return [pscustomobject]@{ tag_name = "v9.9.9"; assets = @(
+        [pscustomobject]@{ name = "entorno-base-windows-x64.zip"; browser_download_url = "https://x/v9.9.9/entorno-base-windows-x64.zip" },
+        [pscustomobject]@{ name = "SHA256SUMS"; browser_download_url = "https://x/v9.9.9/SHA256SUMS" }) }
+}
+$rel = Get-ImagenRelease
+Assert-True "sin tag consulta el ultimo release" ($script:urlConsultada -match "/releases/latest$")
+Assert-True "devuelve el tag y las URLs por nombre" ($rel.Tag -eq "v9.9.9" -and $rel.Assets["entorno-base-windows-x64.zip"] -match "entorno-base")
+$null = Get-ImagenRelease -Tag "v1.2.0"
+Assert-True "con tag consulta ese release" ($script:urlConsultada -match "/releases/tags/v1\.2\.0$")
+Remove-Item Function:\Get-GitHubApiCached
 
 # ============================================================
 # 1. Invoke-DownloadWithRetry: reintentos uniformes de descargas

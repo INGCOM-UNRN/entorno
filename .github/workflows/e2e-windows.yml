@@ -21,10 +21,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Instalación desatendida de la base (sin módulos)
+      # -SinImagen: valida la instalación componente por componente; cadena-completa usa la
+      # imagen del último release, si existe.
+      - name: Instalación desatendida de la base (sin módulos ni imagen)
         timeout-minutes: 20
         shell: pwsh
-        run: ./setup.ps1 -Yes -Modulos ninguno
+        run: ./setup.ps1 -Yes -SinImagen -Modulos ninguno
 
       - name: La base trae git (MinGit), uv y Python con las dependencias de Ripley, sin compilador ni VS Code
         timeout-minutes: 5
@@ -45,7 +47,7 @@ jobs:
         timeout-minutes: 25
         shell: pwsh
         run: |
-          ./modulos/compiladores.ps1
+          ./modulos/compiladores.ps1 -SinImagen
           if (-not (Test-Path ".compiladores_complete")) { throw "El modulo de compiladores no dejo su marcador" }
 
       - name: Logs de diagnóstico ante fallo

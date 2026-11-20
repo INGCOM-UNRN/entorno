@@ -11,6 +11,7 @@ tenga lo mismo durante el cuatrimestre. Un valor `null` significa "la última pu
 | Clave | Qué fija |
 |---|---|
 | `canal` | Nombre del canal (informativo, por ejemplo `2026-c1`). |
+| `imagen` | Tag del release cuyas imágenes precompiladas usa `setup.ps1` (`null` = el último release). |
 | `msys2`, `msys2_fallback` | URL del instalador de MSYS2 y la que se usa si la API de GitHub no responde. |
 | `uv`, `uv_fallback` | URL del zip de uv para Windows. |
 | `python` | Versión menor del Python de la base (por ejemplo `3.12`). |

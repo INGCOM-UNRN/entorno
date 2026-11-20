@@ -87,7 +87,7 @@ seccion() { printf '\n==========================================================
     done | anonimiza
 
     seccion "ESTADO DEL ENTORNO"
-    for m in .install_complete .msys_complete .compiladores_complete .vscode_complete .gh_complete .wezterm_complete; do
+    for m in .install_complete .msys_complete .compiladores_complete .vscode_complete .gh_complete .wezterm_complete .imagen; do
         [ -f "$ROOT/$m" ] && echo "marcador $m : presente" || echo "marcador $m : ausente"
     done
     for d in msys64 mingit python vscode wezterm local linux; do

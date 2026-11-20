@@ -15,24 +15,26 @@ interno. Para el uso cotidiano, ver las [guías de uso](../README.md#uso).
   * `-SkipUpdate`: Saltea la fase de autodescarga e instalación de scripts actualizados de GitHub. Útil cuando se ejecuta localmente durante tareas de depuración o de actualización fuera de línea.
   * `-Yes`: Modo desatendido: acepta automáticamente todas las preguntas (actualizaciones de componentes, advertencia de ruta conflictiva). Pensado para despliegues masivos en laboratorios.
   * `-Latest`: Ignora los pines de `config/versions.json` e instala las últimas versiones disponibles de cada componente. Por defecto el manifiesto manda (reproducibilidad por cuatrimestre); los fallbacks también viven en el manifiesto.
+  * `-SinImagen`: No usa la imagen base precompilada del release; instala cada componente por separado (también implícito con `-Latest`).
   * `-Modulos <lista>`: Módulos opcionales a instalar después de la base: `compiladores`, `vscode`, `todos` o `ninguno` (se aceptan varios separados por coma). Sin el parámetro, una instalación nueva pregunta por cada módulo (con `-Yes` instala todos, como antes) y una actualización actualiza solo los módulos ya instalados.
 * **Canal de scripts:** En instalaciones standalone, la variable `CHANNEL=<rama-o-tag>` dentro de `.env` define desde qué canal se descargan los scripts; en repos Git rige la rama local (`git pull`).
 * **Funcionamiento Interno:**
   1. Valida si la ruta de instalación posee espacios o caracteres no ASCII.
   2. Descarga el snapshot ZIP más reciente del repositorio de GitHub (`INGCOM-UNRN-P1/entorno`) y extrae los scripts en la raíz y carpetas de utilidad.
-  3. **Base:** comprueba, descarga e inicializa MSYS2 (`msys64/`) sin usar pacman, y descarga MinGit (`mingit/`) como git de la base, verificado con el digest SHA-256 de la API de GitHub.
-  4. **Base:** descarga `uv` como binario standalone (`bin/uv.exe`, verificado contra el `.sha256` publicado) e instala con él el Python de la base en `python/` (versión menor en `config/versions.json`, clave `python`) más las dependencias de `config/requirements-base.txt` (typer y rich para Ripley). Cache, intérpretes y herramientas de uv quedan dentro del entorno.
-  5. **Base:** descarga GitHub CLI (`gh`), jonesy, WezTerm y el zipapp `ripley.pyz`.
-  6. **Módulos:** ejecuta los módulos elegidos (ver `-Modulos`). Si un módulo falla, la base queda instalada y el módulo se reintenta con `instalar-<módulo>.bat`.
-  7. En instalaciones sin git, borra de la raíz las copias viejas de archivos que se movieron (`env.common.psm1`, `versions.json`, utilidades que pasaron a `herramientas/`...).
-  8. Genera los marcadores de verificación (`.install_complete` para la base, `.msys_complete`, `.gh_complete`, `.wezterm_complete`; los módulos agregan `.compiladores_complete` y `.vscode_complete`).
+  3. **Imagen base:** en una instalación nueva, descarga `entorno-base-windows-x64.zip` del release (último o el tag `imagen` de `config/versions.json`), lo verifica contra su `SHA256SUMS` y mueve sus componentes al entorno; registra el tag en `.imagen`. Los pasos siguientes encuentran esos componentes instalados y solo completan lo que falte.
+  4. **Base:** comprueba, descarga e inicializa MSYS2 (`msys64/`) sin usar pacman, y descarga MinGit (`mingit/`) como git de la base, verificado con el digest SHA-256 de la API de GitHub.
+  5. **Base:** descarga `uv` como binario standalone (`bin/uv.exe`, verificado contra el `.sha256` publicado) e instala con él el Python de la base en `python/` (versión menor en `config/versions.json`, clave `python`) más las dependencias de `config/requirements-base.txt` (typer y rich para Ripley). Cache, intérpretes y herramientas de uv quedan dentro del entorno.
+  6. **Base:** descarga GitHub CLI (`gh`), jonesy, WezTerm y el zipapp `ripley.pyz`.
+  7. **Módulos:** ejecuta los módulos elegidos (ver `-Modulos`). Si un módulo falla, la base queda instalada y el módulo se reintenta con `instalar-<módulo>.bat`.
+  8. En instalaciones sin git, borra de la raíz las copias viejas de archivos que se movieron (`env.common.psm1`, `versions.json`, utilidades que pasaron a `herramientas/`...).
+  9. Genera los marcadores de verificación (`.install_complete` para la base, `.msys_complete`, `.gh_complete`, `.wezterm_complete`; los módulos agregan `.compiladores_complete` y `.vscode_complete`).
 * **Funciones compartidas:** las descargas con reintentos, la caché de la API de GitHub, los pines de `config/versions.json`, pacman con reintentos y la verificación SHA-256 viven en `lib/instalador.ps1` (ver abajo), que cargan `setup.ps1` y los módulos.
 * **Salidas:** Generación de archivos de estado y el archivo de log central `install.log`.
 
 ### Módulos opcionales: `modulos/compiladores.ps1` y `modulos/vscode.ps1`
 * **Propósito:** Separar de la base las descargas grandes que no todos los contextos necesitan.
 * **Uso:** `instalar-compiladores.bat` / `instalar-vscode.bat` (doble clic), `instalar compiladores|vscode` desde la consola del entorno, o `setup.ps1 -Modulos ...`.
-* **`compiladores`:** elige el espejo de pacman más rápido (la primera vez), sincroniza y actualiza pacman (`-Syu` y `-Su`) e instala `config/packages-compiladores.txt` (toolchain GCC/GDB/make, cmake, ninja, cppcheck, clang-tools-extra, doxygen y librerías comunes); crea `make.exe` en `ucrt64/bin`. Es idempotente. Requiere la base instalada.
+* **`compiladores`:** si la base vino de una imagen (`.imagen`), la primera vez extrae la capa `entorno-compiladores-windows-x64.zip` del mismo release (`-SinImagen` lo evita); si no, elige el espejo de pacman más rápido (la primera vez), sincroniza y actualiza pacman (`-Syu` y `-Su`) e instala `config/packages-compiladores.txt` (toolchain GCC/GDB/make, cmake, ninja, cppcheck, clang-tools-extra, doxygen y librerías comunes); crea `make.exe` en `ucrt64/bin`. Es idempotente. Requiere la base instalada.
 * **`vscode`:** descarga VS Code en modo portable (`vscode/data/`), configura `settings.json` (UCRT64 Bash como terminal, telemetría e IA desactivadas) e instala las extensiones de `config/versions.json`. Con `-Actualizar` busca una versión nueva (lo pasa `setup.ps1` en modo actualización); `-Yes` y `-Latest` como en `setup.ps1`.
 * **Ejecutados por separado** dejan su propio log (`modulo-compiladores.log`, `modulo-vscode.log`); desde `setup.ps1` escriben en `install.log`.
 
@@ -115,6 +117,11 @@ Se ejecutan desde PowerShell (`.\herramientas\<script>.ps1`); resuelven la raíz
   1. Excluye carpetas voluminosas no necesarias para la ejecución (logs, temporales, caché de pacman en `downloads/`).
   2. Exige solo la base instalada: incluye los módulos opcionales que estén instalados en la máquina.
   3. Copia el entorno bajo una carpeta raíz `entorno` y lo comprime en `portable-env-offline.zip`, en la raíz del entorno.
+
+### `construir-imagenes.ps1`
+* **Propósito:** Armar las imágenes precompiladas que publica el workflow `release-imagenes.yml`.
+* **Uso:** sobre un entorno recién instalado desde un clon: `setup.ps1 -Yes -SkipUpdate -SinImagen -Modulos ninguno`, luego `construir-imagenes.ps1 -Etapa base -Salida <dir>`, `modulos\compiladores.ps1 -SinImagen` y `construir-imagenes.ps1 -Etapa compiladores -Salida <dir>`.
+* **Funcionamiento:** la etapa `base` comprime con `tar.exe` los archivos versionados (sin `.github/` ni `tests/`) y los componentes de la base, y guarda un inventario de `msys64` (tamaño y fecha de cada archivo). La etapa `compiladores` compara el inventario con el estado posterior al módulo y comprime solo lo nuevo o cambiado. Excluye el HOME, temporales, la caché y el llavero de pacman, y la documentación de MSYS2.
 
 ### `smoke.ps1` y `bin/smoke.sh`
 * **Propósito:** Automatizar las pruebas de aceptación sin GUI del [plan](../desarrollo/plan.md) (A, B, C, E-local, F-check).

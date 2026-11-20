@@ -12,13 +12,19 @@
 # -Modulos: compiladores, vscode, todos o ninguno (se aceptan varios: -Modulos compiladores,vscode).
 #   Sin el parametro, una instalacion nueva pregunta por cada modulo (-Yes los instala todos)
 #   y una actualizacion actualiza solo los modulos que ya estaban instalados.
+#
+# Instalacion rapida: en una instalacion nueva, la base se toma de la imagen precompilada del
+# ultimo release (o del tag "imagen" de versions.json), una sola descarga verificada en lugar
+# de una por componente; el modulo de compiladores usa la capa del mismo release. -SinImagen
+# fuerza la instalacion componente por componente (tambien -Latest, que pide lo mas nuevo).
 param(
     [string]$HomeDirName = "home",
     [switch]$ImportHostConfig,
     [switch]$SkipUpdate,
     [switch]$Yes,
     [switch]$Latest,
-    [string[]]$Modulos
+    [string[]]$Modulos,
+    [switch]$SinImagen
 )
 
 # ------------------------------------------------------------------
@@ -359,6 +365,7 @@ try {
         if ($Yes) { $newArgs["Yes"] = $true }
         if ($Latest) { $newArgs["Latest"] = $true }
         if ($PSBoundParameters.ContainsKey('Modulos')) { $newArgs["Modulos"] = $Modulos }
+        if ($SinImagen) { $newArgs["SinImagen"] = $true }
         
         $localSetup = Join-Path $portableRoot "setup.ps1"
         $env:P1_SETUP_RELANZADO = "1"
@@ -506,6 +513,30 @@ if (-not (Test-Path $bashrcPath)) {
 
 if (-not (Test-Path $descargasDir)) {
     New-Item -ItemType Directory -Path $descargasDir | Out-Null
+}
+
+# ==========================================
+# 0.8 Imagen base precompilada (release)
+# ==========================================
+# En una instalacion nueva, los componentes de la base (MSYS2, MinGit, Python, WezTerm, uv,
+# gh, jonesy, Ripley) llegan en una sola descarga verificada; el resto del setup los
+# encuentra instalados y solo completa la configuracion local. Si la imagen no esta o falla,
+# se sigue componente por componente.
+$imagenMarker = Join-Path $portableRoot ".imagen"
+if (-not $isUpdateMode -and -not $SinImagen -and -not $Latest -and -not (Test-Path (Join-Path $msysDir "usr\bin\bash.exe"))) {
+    try {
+        $imagenRelease = Get-ImagenRelease -Tag (Get-Pinned 'imagen')
+        $imagenUrl = $imagenRelease.Assets[$NombreImagenBase]
+        if (-not $imagenUrl) { throw "el release $($imagenRelease.Tag) no publica $NombreImagenBase" }
+        Write-Host "=== Instalando la imagen base precompilada (release $($imagenRelease.Tag)) ===" -ForegroundColor Cyan
+        Install-ImagenRelease -Url $imagenUrl -PortableRoot $portableRoot -DescargasDir $descargasDir -Componentes $ComponentesImagenBase
+        # El modulo de compiladores usa la capa del mismo release solo sobre esta base
+        Set-Content -Path $imagenMarker -Value $imagenRelease.Tag
+        Write-Host "Imagen base instalada.`n" -ForegroundColor Green
+    } catch {
+        Write-Warning "No se pudo usar la imagen base precompilada ($_). Se instala cada componente por separado."
+        if (Test-Path $imagenMarker) { Remove-Item -Path $imagenMarker -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 # ==========================================
@@ -674,7 +705,10 @@ if ($isUpdateMode -or -not $isMsysComplete) {
         $customAliases = @(
             "# === Portable Dev Environment Aliases ===",
             "alias python='python3'",
-            "alias pip='pip3'",
+            # 'python3 -m pip' y no pip.exe: los .exe que genera pip guardan la ruta absoluta de
+            # python.exe y dejan de andar si el entorno cambia de carpeta o de unidad.
+            "alias pip='python3 -m pip'",
+            "alias pip3='python3 -m pip'",
             "alias make='mingw32-make'",
             "alias ll='ls -alF --color=auto'",
             "export PS1='\[\e[32m\]\u@portable \[\e[33m\]\w\[\e[0m\]\n$ '"

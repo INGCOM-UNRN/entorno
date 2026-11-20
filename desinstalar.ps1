@@ -62,6 +62,7 @@ $targets = @(
     @{ Path = Join-Path $portableRoot ".msys_complete"; Desc = "Marcador de instalacion" },
     @{ Path = Join-Path $portableRoot ".vscode_complete"; Desc = "Marcador de instalacion" },
     @{ Path = Join-Path $portableRoot ".compiladores_complete"; Desc = "Marcador de instalacion" },
+    @{ Path = Join-Path $portableRoot ".imagen"; Desc = "Release de la imagen precompilada usada" },
     @{ Path = Join-Path $portableRoot ".gh_complete"; Desc = "Marcador de instalacion" },
     @{ Path = Join-Path $portableRoot ".wezterm_complete"; Desc = "Marcador de instalacion" }
 )

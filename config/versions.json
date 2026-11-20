@@ -9,9 +9,11 @@
     "uv: URL del zip de Windows (null = ultimo release); se verifica contra el <zip>.sha256 publicado.",
     "python: version menor del Python de la base, instalada con uv.",
     "mingit: URL del zip de MinGit (null = ultimo release de Git for Windows, verificado con el digest de la API);",
-    "mingit_sha256: suma esperada para el pin o el fallback (en null solo se advierte)."
+    "mingit_sha256: suma esperada para el pin o el fallback (en null solo se advierte).",
+    "imagen: tag del release cuyas imagenes precompiladas usa setup.ps1 (null = ultimo release)."
   ],
   "canal": "2026-c1",
+  "imagen": null,
   "msys2": null,
   "msys2_fallback": "https://github.com/msys2/msys2-installer/releases/download/2025-02-21/msys2-base-x86_64-20250221.sfx.exe",
   "vscode": null,

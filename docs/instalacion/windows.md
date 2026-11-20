@@ -25,7 +25,12 @@ contextos que no compilan C:
 | **Módulo `compiladores`** | gcc, gdb, make, cmake, ninja, cppcheck, clang-format/clang-tidy, doxygen y librerías comunes (descarga grande, vía pacman) | al final de `setup.ps1`, o después con `instalar-compiladores.bat` |
 | **Módulo `vscode`** | VS Code portable con las extensiones de C/C++ y Python | al final de `setup.ps1`, o después con `instalar-vscode.bat` |
 
-La base no usa pacman. Al terminarla, `setup.ps1` pregunta por cada módulo (Enter = sí).
+La base no usa pacman. En una instalación nueva llega como **imagen precompilada**: el CI
+publica en cada release la base ya instalada y una capa con los compiladores, y `setup.ps1`
+las descarga en un solo paso cada una (verificadas con SHA-256) en lugar de bajar cada
+componente por separado. Si la imagen no está disponible, instala componente por componente.
+
+Al terminar la base, `setup.ps1` pregunta por cada módulo (Enter = sí).
 Los que no instales se pueden agregar en cualquier momento con su `.bat` o, desde la
 consola del entorno, con `instalar compiladores` / `instalar vscode`; el comando `ayuda`
 te recuerda cuáles faltan.
@@ -80,10 +85,12 @@ El instalador muestra cada paso y lo registra en `install.log`:
 ![Log en tiempo real del proceso de instalación](../capturas/5_instalando.png)
 
 1. Actualiza los scripts del entorno a la última versión publicada.
-2. Extrae MSYS2 (bash y el userland Unix de la consola).
-3. Descarga **MinGit**, **uv** y, con uv, **Python** y sus dependencias.
-4. Descarga GitHub CLI, jonesy, WezTerm y el motor Ripley.
-5. Pregunta por los módulos opcionales (`compiladores`, `vscode`) e instala los elegidos.
+2. Descarga la imagen base del último release: MSYS2 (bash y el userland Unix), **MinGit**,
+   **uv**, **Python** con sus dependencias, GitHub CLI, jonesy, WezTerm y el motor Ripley.
+   Si no hay imagen, descarga cada uno por separado.
+3. Completa la configuración local (consola, HOME portable).
+4. Pregunta por los módulos opcionales (`compiladores`, `vscode`) e instala los elegidos;
+   el de compiladores usa la capa precompilada del mismo release.
 
 Todas las descargas se verifican (SHA-256) antes de usarse.
 
@@ -126,6 +133,7 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; .\setup.ps1 -Modulos compilado
 | `-ImportHostConfig` | Copia al entorno tu configuración de SSH, Git y VS Code de la máquina. |
 | `-Latest` | Ignora los pines de `config/versions.json` e instala lo último publicado. |
 | `-SkipUpdate` | No descarga versiones nuevas de los scripts antes de instalar. |
+| `-SinImagen` | No usa las imágenes precompiladas: descarga cada componente (también con `-Latest`). |
 
 Ejemplos:
 
@@ -150,7 +158,14 @@ al archivo `.env` de la carpeta (ver [Configuración](../referencia/configuracio
 
 ## Instalación sin internet
 
-En una máquina con conexión y el entorno ya instalado:
+**Con las imágenes del release** (la forma más simple): descargá de la página de
+[releases](https://github.com/INGCOM-UNRN-P1/entorno/releases) `entorno-base-windows-x64.zip`
+y, si hace falta compilar, `entorno-compiladores-windows-x64.zip`. En la máquina destino
+descomprimí los dos **en la misma carpeta** (primero la base) y abrí `launch.bat`. Ejecutá
+`doctor --fix` una vez para registrar los módulos presentes.
+
+**Con un paquete propio** (incluye VS Code y lo que tengas instalado), en una máquina con
+conexión y el entorno ya instalado:
 
 ```powershell
 .\herramientas\package-env.ps1            # genera portable-env-offline.zip en la raíz

@@ -343,3 +343,105 @@ function Wait-AntesDeCerrar {
     Write-Host ""
     $null = Read-Host "Presiona Enter para terminar"
 }
+
+# ------------------------------------------------------------------
+# Imagenes precompiladas (releases del repositorio)
+# ------------------------------------------------------------------
+# El workflow release-imagenes.yml publica en cada release:
+#   entorno-base-windows-x64.zip          scripts + componentes de la base ya instalados
+#   entorno-compiladores-windows-x64.zip  capa de msys64 con el modulo de compiladores
+#   SHA256SUMS
+# setup.ps1 usa la imagen base en una instalacion nueva (una descarga en lugar de una por
+# componente) y modulos\compiladores.ps1 usa la capa si la base vino de la misma imagen.
+$RepoImagenes = "INGCOM-UNRN-P1/entorno"
+$NombreImagenBase = "entorno-base-windows-x64.zip"
+$NombreImagenCompiladores = "entorno-compiladores-windows-x64.zip"
+# Lo que la imagen base aporta a una instalacion (fuente unica para el armado y el uso).
+# No incluye .install_complete ni .msys_complete: setup.ps1 completa la configuracion de la
+# consola y del HOME portable en la maquina del usuario.
+$ComponentesImagenBase = @(
+    "msys64", "mingit", "python", "wezterm",
+    "bin\uv.exe", "bin\uvx.exe", "bin\uvw.exe", "bin\.uv_version",
+    "bin\gh.exe", "bin\.gh_version", "bin\jonesy.exe", "bin\.jonesy_version", "bin\ripley.pyz",
+    ".gh_complete", ".jonesy_complete", ".wezterm_complete"
+)
+
+# Release del que salen las imagenes: el indicado (tag) o el ultimo publicado.
+# Devuelve el tag y un diccionario nombre de archivo -> URL de descarga.
+function Get-ImagenRelease {
+    param([string]$Tag = "")
+    $url = if ($Tag) { "https://api.github.com/repos/$RepoImagenes/releases/tags/$Tag" } else { "https://api.github.com/repos/$RepoImagenes/releases/latest" }
+    $release = Get-GitHubApiCached -Url $url
+    if (-not $release -or -not $release.tag_name) { throw "La API de GitHub no devolvio el release." }
+    $assets = @{}
+    foreach ($asset in @($release.assets)) { $assets[$asset.name] = $asset.browser_download_url }
+    return [pscustomobject]@{ Tag = $release.tag_name; Assets = $assets }
+}
+
+# Extrae un .zip rapido con tar.exe (bsdtar, incluido desde Windows 10 1803) y, si no esta
+# o falla, con Expand-Archive.
+function Expand-ArchivoRapido {
+    param([string]$Path, [string]$Destino)
+    New-Item -ItemType Directory -Force -Path $Destino | Out-Null
+    $tarExe = if ($env:SystemRoot) { Join-Path $env:SystemRoot "System32\tar.exe" } else { "" }
+    if ($tarExe -and (Test-Path $tarExe)) {
+        & $tarExe -xf $Path -C $Destino
+        if ($LASTEXITCODE -eq 0) { return }
+        Write-Warning "tar.exe no pudo extraer $Path (codigo $LASTEXITCODE). Se reintenta con Expand-Archive."
+    }
+    Expand-Archive -Path $Path -DestinationPath $Destino -Force
+}
+
+# Mueve una carpeta dentro de otra fusionando el contenido (reemplaza archivos existentes).
+function Move-Fusionando {
+    param([string]$Origen, [string]$Destino)
+    if (-not (Test-Path $Destino)) {
+        $padre = Split-Path -Parent $Destino
+        if ($padre -and -not (Test-Path $padre)) { New-Item -ItemType Directory -Force -Path $padre | Out-Null }
+        Move-Item -Path $Origen -Destination $Destino
+        return
+    }
+    & robocopy $Origen $Destino /E /MOVE /NFL /NDL /NJH /NJS /NP /R:2 /W:1 | Out-Null
+    # robocopy: 0-7 es exito (con o sin archivos copiados); 8 o mas, error
+    if ($LASTEXITCODE -ge 8) { throw "robocopy no pudo fusionar $Origen en $Destino (codigo $LASTEXITCODE)." }
+    $global:LASTEXITCODE = 0
+}
+
+# Descarga una imagen de un release, la verifica contra el SHA256SUMS del mismo release, la
+# extrae aparte y mueve al entorno solo los componentes indicados. Un fallo antes de mover
+# deja el entorno como estaba.
+function Install-ImagenRelease {
+    param(
+        [string]$Url,
+        [string]$PortableRoot,
+        [string]$DescargasDir,
+        [string[]]$Componentes
+    )
+    $nombre = $Url.Substring($Url.LastIndexOf('/') + 1)
+    $zipPath = Join-Path $DescargasDir $nombre
+    $extractDir = Join-Path $DescargasDir "imagen_extract"
+    try {
+        Write-Host "Descargando $nombre..." -ForegroundColor Cyan
+        Invoke-DownloadWithRetry -Url $Url -OutFile $zipPath
+        Assert-ReleaseSha256 -Path $zipPath -Url $Url
+        Write-Host "Suma SHA-256 de $nombre verificada contra el release." -ForegroundColor Green
+        if (Test-Path $extractDir) { Remove-Item -Path $extractDir -Recurse -Force }
+        Write-Host "Extrayendo $nombre..." -ForegroundColor Cyan
+        Expand-ArchivoRapido -Path $zipPath -Destino $extractDir
+        foreach ($componente in $Componentes) {
+            $origen = Join-Path $extractDir $componente
+            if (-not (Test-Path $origen)) { continue }
+            $destino = Join-Path $PortableRoot $componente
+            if (Test-Path $origen -PathType Container) {
+                Move-Fusionando -Origen $origen -Destino $destino
+            } else {
+                $padre = Split-Path -Parent $destino
+                if (-not (Test-Path $padre)) { New-Item -ItemType Directory -Force -Path $padre | Out-Null }
+                Move-Item -Path $origen -Destination $destino -Force
+            }
+        }
+    } finally {
+        if (Test-Path $extractDir) { Remove-Item -Path $extractDir -Recurse -Force -ErrorAction SilentlyContinue }
+        if (Test-Path $zipPath) { Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue }
+    }
+}
