@@ -144,6 +144,7 @@ EOF
             ensure_marker ".msys_complete" "MSYS2"
             ensure_marker ".install_complete" "instalación general"
         fi
+        [ -f "$ROOT/msys64/ucrt64/bin/gcc.exe" ] && ensure_marker ".compiladores_complete" "módulo de compiladores"
         [ -f "$ROOT/vscode/Code.exe" ] && ensure_marker ".vscode_complete" "VS Code"
         [ -f "$ROOT/bin/gh.exe" ] && ensure_marker ".gh_complete" "GitHub CLI"
         { [ -f "$ROOT/wezterm/wezterm-gui.exe" ] || [ -f "$ROOT/wezterm/wezterm.exe" ]; } \
@@ -190,8 +191,11 @@ else
     warn "No detecto sesión activa: activá con 'source linux/activate.sh' o usá launch.bat."
 fi
 
-# 2. Compilador C: compilar, enlazar y ejecutar
-if printf 'int main(void){return 42;}\n' > "$TMP.c" 2>/dev/null && \
+# 2. Compilador C: compilar, enlazar y ejecutar. En Windows es un módulo opcional
+#    (instalar compiladores): si no está instalado se avisa, no es una falla de la base.
+if ! command -v gcc >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
+    warn "Compilador C no instalado (módulo opcional): ejecutá 'instalar compiladores'"
+elif printf 'int main(void){return 42;}\n' > "$TMP.c" 2>/dev/null && \
    $(command -v gcc || echo gcc) -x c "$TMP.c" -o "$TMP.out" >/dev/null 2>&1 && \
    [ -x "$TMP.out" ] && "$TMP.out"; [ $? -eq 42 ] 2>/dev/null; then
     ok "Compilador C: gcc compila, enlaza y ejecuta correctamente"

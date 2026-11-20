@@ -1,0 +1,7 @@
+# Paquetes de pacman de la instalación base del entorno portable (Windows, MSYS2)
+# Solo lo indispensable para la consola. Python y uv NO vienen de pacman: setup.ps1
+# instala uv como binario standalone y Python con uv (ver requirements-base.txt).
+# El compilador y sus herramientas son el módulo opcional: packages-compiladores.txt.
+# Formato: <paquete> [ # comentario ]
+
+git                                      # Control de versiones (clonar, entregar, uv tool install git+...)

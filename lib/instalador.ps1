@@ -1,4 +1,5 @@
-# lib/instalador.ps1 - Funciones compartidas del instalador del entorno portable (setup.ps1).
+# lib/instalador.ps1 - Funciones compartidas por el instalador base (setup.ps1) y los
+# modulos opcionales (modulos/compiladores.ps1, modulos/vscode.ps1).
 #
 # Se carga con dot-sourcing (". lib\instalador.ps1") para que las funciones vean las
 # variables del script que las usa: $descargasDir (cache de descargas) y

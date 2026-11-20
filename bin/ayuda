@@ -32,6 +32,7 @@ echo -e "  ${GREEN}ayuda${RESET}                 - Muestra esta guía rápida de
 echo -e "  ${GREEN}configure-git.sh${RESET}      - Configura tu identidad de Git e inicia sesión en GitHub."
 echo -e "  ${GREEN}customize-bash.sh${RESET}     - Cambia los colores y el banner de bienvenida de Bash."
 echo -e "  ${GREEN}update-env.sh${RESET}        - Actualiza los scripts y componentes del entorno portable."
+echo -e "  ${GREEN}instalar <módulo>${RESET}     - Instala un módulo opcional: compiladores (gcc, make, gdb) o vscode."
 echo -e "  ${GREEN}build-launcher.sh${RESET}     - Compila o regenera los accesos directos (.exe) de la raíz."
 echo -e "  ${GREEN}install-lib.sh <repo>${RESET} - Instala librerías C desde GitHub (Ej: davidsiaw/inih)."
 echo -e "  ${GREEN}uninstall-lib.sh${RESET}      - Lista o desinstala librerías instaladas con install-lib."
@@ -60,6 +61,19 @@ echo -e "  ${BLUE}ll${RESET}                    - Alias para ver el directorio e
 echo ""
 
 echo -e "${GOLD}${BOLD}======================================================================${RESET}"
+# Módulos opcionales de Windows que todavía no se instalaron (la base no los incluye)
+if [ -f "$ROOT_DIR/.install_complete" ]; then
+    FALTAN_MODULOS=""
+    [ -f "$ROOT_DIR/.compiladores_complete" ] || command -v gcc >/dev/null 2>&1 || FALTAN_MODULOS="compiladores"
+    [ -f "$ROOT_DIR/.vscode_complete" ] || FALTAN_MODULOS="${FALTAN_MODULOS:+$FALTAN_MODULOS }vscode"
+    if [ -n "$FALTAN_MODULOS" ]; then
+        echo -e "${YELLOW}${BOLD}[ Módulos opcionales sin instalar ]${RESET}"
+        for MODULO in $FALTAN_MODULOS; do
+            echo -e "  * ${GREEN}instalar $MODULO${RESET}"
+        done
+        echo ""
+    fi
+fi
 if [ ! -f "$HOME/.bash_customized" ]; then
     echo -e "${YELLOW}${BOLD}[ Pasos sugeridos para iniciar ]${RESET}"
     echo -e "  * Ejecutá ${GREEN}configure-git.sh${RESET} para configurar tu identidad de Git."

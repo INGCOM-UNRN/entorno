@@ -1,9 +1,9 @@
-# Paquetes base del entorno portable
-# Fuente única compartida por setup.ps1 y bin/download-baseline.sh
-# Python y uv no vienen de pacman: setup.ps1 instala uv standalone y Python con uv.
+# Paquetes del modulo opcional "compiladores" del entorno portable (Windows, MSYS2 UCRT64)
+# Fuente única compartida por modulos/compiladores.ps1, bin/update-packages.sh y
+# bin/download-baseline.sh. La base (setup.ps1) instala solo packages-base.txt.
 # Formato: <paquete> [ # comentario ]
 
-mingw-w64-ucrt-x86_64-toolchain          # Metapaquete: GCC, Binutils y GDB para compilación nativa UCRT
+mingw-w64-ucrt-x86_64-toolchain          # Metapaquete: GCC, Binutils, GDB y make para compilación nativa UCRT
 mingw-w64-ucrt-x86_64-cmake              # Generador de sistemas de build
 mingw-w64-ucrt-x86_64-ninja              # Sistema de build concurrente de bajo nivel
 mingw-w64-ucrt-x86_64-cppcheck           # Análisis estático de código C/C++
@@ -13,4 +13,3 @@ mingw-w64-ucrt-x86_64-sqlite3            # Motor SQL embebido sobre archivos loc
 mingw-w64-ucrt-x86_64-curl               # Transferencia multiprotocolo HTTP/S, FTP
 mingw-w64-ucrt-x86_64-doxygen            # Generador de documentación desde el código fuente
 mingw-w64-ucrt-x86_64-clang-tools-extra  # clang-tidy, clang-format y herramientas Clang extra
-git                                      # Sistema de control de versiones distribuido

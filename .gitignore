@@ -1,5 +1,6 @@
 # Complete indicator files
 .msys_complete
+.compiladores_complete
 .vscode_complete
 .gh_complete
 .wezterm_complete

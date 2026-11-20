@@ -23,7 +23,7 @@ $codeExe = Join-Path $vscodeDir "Code.exe"
 # Validar existencia de VS Code
 if (-not (Test-Path $codeExe)) {
     Add-Type -AssemblyName System.Windows.Forms
-    [System.Windows.Forms.MessageBox]::Show("No se encuentra la instalacion de VS Code en la ruta:`n$vscodeDir`n`nPor favor, ejecuta setup.ps1 primero para instalar el entorno completo.", "Error - Lanzador Portable", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+    [System.Windows.Forms.MessageBox]::Show("No se encuentra la instalacion de VS Code en la ruta:`n$vscodeDir`n`nVS Code es un modulo opcional: instalalo con instalar-vscode.bat (en la carpeta del entorno).", "Error - Lanzador Portable", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
     return
 }
 

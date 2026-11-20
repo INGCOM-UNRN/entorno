@@ -26,7 +26,7 @@ if (Test-Path $envFile) {
 
 # Componentes generados por setup.ps1 y el uso del entorno (nunca toca los scripts del repo)
 $targets = @(
-    @{ Path = Join-Path $portableRoot "msys64";  Desc = "Compiladores y userland MSYS2 (~2 GB)" },
+    @{ Path = Join-Path $portableRoot "msys64";  Desc = "Userland MSYS2 y modulo de compiladores" },
     @{ Path = Join-Path $portableRoot "vscode";  Desc = "VS Code Portable y extensiones" },
     @{ Path = Join-Path $portableRoot "wezterm"; Desc = "Terminal WezTerm" },
     @{ Path = Join-Path $portableRoot "python";  Desc = "Python de la base (instalado con uv)" },
@@ -41,6 +41,7 @@ $targets = @(
     @{ Path = Join-Path $portableRoot ".install_complete"; Desc = "Marcador de instalacion" },
     @{ Path = Join-Path $portableRoot ".msys_complete"; Desc = "Marcador de instalacion" },
     @{ Path = Join-Path $portableRoot ".vscode_complete"; Desc = "Marcador de instalacion" },
+    @{ Path = Join-Path $portableRoot ".compiladores_complete"; Desc = "Marcador de instalacion" },
     @{ Path = Join-Path $portableRoot ".gh_complete"; Desc = "Marcador de instalacion" },
     @{ Path = Join-Path $portableRoot ".wezterm_complete"; Desc = "Marcador de instalacion" }
 )

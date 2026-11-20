@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $SetupPath = Join-Path $RepoRoot "setup.ps1"
-# Funciones compartidas del instalador
+# Funciones compartidas por setup.ps1 y los modulos opcionales (modulos/*.ps1)
 $LibPath = Join-Path $RepoRoot "lib/instalador.ps1"
 $Fail = 0
 
@@ -30,14 +30,20 @@ function Assert-True {
 }
 
 # ============================================================
-# 0. Los scripts del instalador parsean sin errores
+# 0. Los scripts del instalador parsean sin errores (base, lib y modulos)
 # ============================================================
-foreach ($rel in @("setup.ps1", "lib/instalador.ps1")) {
+foreach ($rel in @("setup.ps1", "lib/instalador.ps1", "modulos/compiladores.ps1", "modulos/vscode.ps1")) {
     $parseErrs = $null
     [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $RepoRoot $rel), [ref]$null, [ref]$parseErrs) | Out-Null
     Assert-True "$rel parsea sin errores" (-not $parseErrs)
     foreach ($e in @($parseErrs)) { if ($e) { Write-Host "   $($e.Extent.StartLineNumber): $($e.Message)" } }
 }
+
+# La base no instala el compilador ni VS Code: eso queda en los modulos
+$setupText = Get-Content -Raw (Join-Path $RepoRoot "setup.ps1")
+Assert-True "setup.ps1 no instala packages-compiladores.txt" (-not ($setupText -match 'packages-compiladores\.txt"\)'))
+Assert-True "setup.ps1 no descarga VS Code" (-not ($setupText -match 'win32-x64-archive'))
+Assert-True "modulos/vscode.ps1 descarga VS Code" ((Get-Content -Raw (Join-Path $RepoRoot "modulos/vscode.ps1")) -match 'win32-x64-archive')
 
 # ============================================================
 # 1. Invoke-DownloadWithRetry: reintentos uniformes de descargas

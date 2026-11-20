@@ -51,7 +51,7 @@ if [ "$updated" -eq 0 ] && [ ! -d "$PORTABLE_ROOT/.git" ]; then
     [ -d "$EXTRACTED_DIR" ] || { echo -e "\e[31m[ERROR] Snapshot inesperado.\e[0m"; exit 1; }
 
     cp -r "$EXTRACTED_DIR/linux/." "$PORTABLE_ROOT/linux/"
-    for f in README.md plan.md AGENTS.md packages-baseline.txt VERSION; do
+    for f in README.md plan.md AGENTS.md VERSION; do
         [ -f "$EXTRACTED_DIR/$f" ] && cp -f "$EXTRACTED_DIR/$f" "$PORTABLE_ROOT/"
     done
     chmod +x "$PORTABLE_ROOT"/linux/bin/* "$PORTABLE_ROOT"/linux/*.sh 2>/dev/null || true

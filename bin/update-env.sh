@@ -83,7 +83,8 @@ fi
 
 # 3. Actualizar componentes nativos
 echo -e "\n\e[33m[3/3] ¿Deseás ejecutar la actualización completa de herramientas nativas?\e[0m"
-echo "(Esto verificará e instalará actualizaciones de MSYS2, VS Code y GitHub CLI)."
+echo "(Esto verificará e instalará actualizaciones de la base: MSYS2, uv, Python, GitHub CLI y WezTerm,"
+echo " y de los módulos opcionales ya instalados: compiladores y VS Code)."
 echo -n "¿Continuar? (s/n): "
 read -r choice
 

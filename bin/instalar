@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# instalar - Instala un módulo opcional del entorno portable de Windows.
+#
+# Uso: instalar compiladores   gcc, gdb, make, cmake y herramientas de análisis (pacman)
+#      instalar vscode         VS Code portable con las extensiones de C y Python
+#
+# El instalador corre en una ventana aparte (instalar-<módulo>.bat): si pacman actualiza
+# el núcleo de MSYS2, cierra todas las consolas abiertas, incluida la que lo pidió.
+
+set -eu
+
+RED='\033[31m'; YELLOW='\033[33m'; CYAN='\033[36m'; RESET='\033[0m'
+
+uso() {
+    echo "Uso: instalar <módulo>"
+    echo ""
+    echo "Módulos opcionales:"
+    echo "  compiladores   gcc, gdb, make, cmake, cppcheck, clang-format (descarga grande)"
+    echo "  vscode         VS Code portable con las extensiones de C y Python"
+}
+
+case "${1:-}" in
+    compiladores|vscode) MODULO="$1" ;;
+    -h|--help) uso; exit 0 ;;
+    *) uso >&2; exit 1 ;;
+esac
+
+ROOT="${PORTABLE_ROOT:-}"
+if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
+    ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+fi
+ROOT="$(cygpath -u "$ROOT" 2>/dev/null || echo "$ROOT")"
+BAT="$ROOT/instalar-$MODULO.bat"
+
+if ! command -v powershell.exe >/dev/null 2>&1 || ! command -v cygpath >/dev/null 2>&1; then
+    echo -e "${RED}[ERROR] 'instalar' es para el entorno portable de Windows.${RESET}" >&2
+    echo "En Linux y macOS el compilador viene del sistema: ejecutá diagnose-env.sh para ver cómo instalarlo." >&2
+    exit 1
+fi
+if [ ! -f "$BAT" ]; then
+    echo -e "${RED}[ERROR] No encontré $BAT. Actualizá el entorno con update-env.sh.${RESET}" >&2
+    exit 1
+fi
+
+echo -e "${CYAN}Abriendo el instalador del módulo '$MODULO' en una ventana aparte...${RESET}"
+if [ "$MODULO" = "compiladores" ]; then
+    echo -e "${YELLOW}Si pacman actualiza el núcleo de MSYS2 puede cerrar esta consola.${RESET}"
+    echo "Cuando el instalador termine, volvé a abrirla con launch.bat."
+fi
+WIN_BAT="$(cygpath -w "$BAT")"
+powershell.exe -NoProfile -Command "Start-Process -FilePath \"$WIN_BAT\""
