@@ -286,6 +286,10 @@ if (-not $isUpdateMode -and $isCodeComplete -and $isCodeInstalled) {
 $codeCmd = Join-Path $vscodeDir "bin\code.cmd"
 if (Test-Path $codeCmd) {
     if ($isUpdateMode -or -not $isCodeComplete) {
+        # El marcador se invalida al empezar y se recrea solo si todas las extensiones quedan
+        # instaladas: si una falla durante una actualizacion, el marcador de la instalacion
+        # anterior no puede hacer que un reintento sin -Actualizar las saltee.
+        Remove-Item -Path (Join-Path $portableRoot ".vscode_complete") -Force -ErrorAction SilentlyContinue
         Write-Host "Verificando e instalando extensiones de VS Code..." -ForegroundColor Cyan
         # Versiones pineadas en versions.json (campo "extensiones": id -> version o null)
         $extensions = @(

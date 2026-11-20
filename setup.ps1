@@ -1512,8 +1512,8 @@ if ($needsRipleyDownload) {
 # necesitan; cada uno es un script independiente (modulos\<nombre>.ps1) que tambien se
 # puede ejecutar despues con instalar-<nombre>.bat.
 $modulosInfo = [ordered]@{
-    "compiladores" = @{ Marker = ".compiladores_complete"; Descripcion = "compilador de C y herramientas (gcc, gdb, make, cmake, cppcheck, clang-format)" }
-    "vscode"       = @{ Marker = ".vscode_complete";       Descripcion = "VS Code portable con las extensiones de C y Python" }
+    "compiladores" = @{ Marker = ".compiladores_complete"; Presente = "msys64\ucrt64\bin\gcc.exe"; Descripcion = "compilador de C y herramientas (gcc, gdb, make, cmake, cppcheck, clang-format)" }
+    "vscode"       = @{ Marker = ".vscode_complete";       Presente = "vscode\Code.exe";             Descripcion = "VS Code portable con las extensiones de C y Python" }
 }
 
 # Migracion: antes de los modulos, .msys_complete significaba "MSYS2 con compiladores".
@@ -1529,8 +1529,9 @@ if ($null -ne $modulosPedidos) {
     $interactivo = Test-InteractiveConsole -Yes:$Yes
     foreach ($nombre in $modulosInfo.Keys) {
         $info = $modulosInfo[$nombre]
-        if (Test-Path (Join-Path $portableRoot $info.Marker)) {
-            # Ya instalado: se ejecuta para completar o actualizar
+        if ((Test-Path (Join-Path $portableRoot $info.Marker)) -or (Test-Path (Join-Path $portableRoot $info.Presente))) {
+            # Ya instalado (o a medias, por ejemplo una extension de VS Code que fallo y dejo
+            # el modulo sin marcador): se ejecuta para completar o actualizar
             $modulosAEjecutar += $nombre
         } elseif ($isUpdateMode) {
             Write-Host "Modulo '$nombre' no instalado ($($info.Descripcion)). Se instala con instalar-$nombre.bat." -ForegroundColor DarkGray

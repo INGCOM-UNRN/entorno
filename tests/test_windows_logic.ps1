@@ -45,6 +45,13 @@ Assert-True "setup.ps1 no instala packages-compiladores.txt" (-not ($setupText -
 Assert-True "setup.ps1 no descarga VS Code" (-not ($setupText -match 'win32-x64-archive'))
 Assert-True "setup.ps1 no usa pacman (git viene de MinGit)" (-not ($setupText -match 'Invoke-PacmanWithRetry -'))
 Assert-True "modulos/vscode.ps1 descarga VS Code" ((Get-Content -Raw (Join-Path $RepoRoot "modulos/vscode.ps1")) -match 'win32-x64-archive')
+# El marcador de VS Code se invalida antes de las extensiones y se recrea despues de todas:
+# una extension que falla en una actualizacion no puede dejar el marcador viejo
+$vscodeTexto = Get-Content -Raw (Join-Path $RepoRoot "modulos/vscode.ps1")
+$iBorra = $vscodeTexto.IndexOf('Remove-Item -Path (Join-Path $portableRoot ".vscode_complete")')
+$iBucle = $vscodeTexto.IndexOf('foreach ($ext in $extensions)')
+$iCrea = $vscodeTexto.IndexOf('Set-Content -Path (Join-Path $portableRoot ".vscode_complete")')
+Assert-True "vscode: el marcador se borra antes de instalar extensiones y se crea despues" ($iBorra -ge 0 -and $iBorra -lt $iBucle -and $iBucle -lt $iCrea)
 
 # La ventana no desaparece al terminar: install.ps1 corre con iex en la consola del usuario,
 # donde 'exit' la cerraria; setup.ps1 atiende cualquier error con un trap que espera.
