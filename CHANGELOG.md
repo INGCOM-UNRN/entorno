@@ -5,6 +5,8 @@ versionado SemVer. La versión del entorno vive en el archivo `VERSION`.
 
 ## [Sin publicar]
 
+## [1.2.0] - 2026-11-20
+
 ### Cambiado
 * **Instalación de Windows en dos fases: base y módulos opcionales.** `setup.ps1` instala ahora solo la base (MSYS2 con git, uv, Python, GitHub CLI, jonesy, WezTerm y Ripley), que alcanza para usar el entorno en contextos que no compilan C y evita la descarga masiva inicial. El compilador y sus herramientas (`modulos/compiladores.ps1`, paquetes en `packages-compiladores.txt`) y VS Code (`modulos/vscode.ps1`) son módulos independientes: `setup.ps1` pregunta por cada uno al terminar la base, se eligen con `-Modulos compiladores|vscode|todos|ninguno` y se instalan en cualquier momento con `instalar-compiladores.bat`, `instalar-vscode.bat` o el comando `instalar` de la consola. Con `-Yes` y sin `-Modulos` se instala todo, como antes; una actualización actualiza solo los módulos ya instalados. `ayuda` y `doctor` avisan qué módulos faltan, y `doctor` ya no informa la falta de gcc como una falla cuando el módulo no está instalado.
 * **uv y Python en la base, sin pacman.** uv se descarga como binario standalone (`bin/uv.exe`, verificado contra el `.sha256` publicado, pin `uv` / `uv_fallback` en `versions.json`) e instala el Python de la base en `python/` (versión menor en la clave `python`) con las dependencias de `requirements-base.txt` (typer y rich para Ripley). `env.common.psm1` agrega ese Python al PATH de la sesión, exporta `MSYS2_PATH_TYPE=inherit` y confina la cache, los intérpretes y las herramientas de uv dentro del entorno (sin `%LOCALAPPDATA%` ni registro de Windows). Python, pip, typer, rich y uv salen de las listas de pacman.
