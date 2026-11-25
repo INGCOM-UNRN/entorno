@@ -165,6 +165,10 @@ descomprimí los dos **en la misma carpeta** (primero la base) y abrí `launch.b
 `doctor --fix` una vez: registra los módulos presentes y termina de aplicar la capa de
 compiladores (borra las versiones viejas de paquetes que la capa reemplaza).
 
+`entorno-compiladores` no es un entorno: es un complemento que solo trae los archivos que
+agrega el módulo de compiladores, armado como diferencia respecto de la base **del mismo
+release**. Usá siempre las dos imágenes de la misma versión.
+
 **Con un paquete propio** (incluye VS Code y lo que tengas instalado), en una máquina con
 conexión y el entorno ya instalado:
 

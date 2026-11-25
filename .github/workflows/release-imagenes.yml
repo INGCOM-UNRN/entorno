@@ -4,13 +4,14 @@ name: release-imagenes
 #
 #   entorno-base-windows-x64.zip          scripts + base instalada (MSYS2, MinGit, Python, uv,
 #                                         WezTerm, gh, jonesy, Ripley); se descomprime y anda
-#   entorno-compiladores-windows-x64.zip  capa de msys64 con el módulo de compiladores
+#   entorno-compiladores-windows-x64.zip  complemento: capa de msys64 con el módulo de
+#                                         compiladores, solo sobre la base del mismo release
 #   SHA256SUMS
 #
 # setup.ps1 usa la imagen base en las instalaciones nuevas (una descarga en lugar de una por
 # componente) y el módulo de compiladores usa la capa del mismo release. Se ejecuta al
 # publicar un tag v* o a mano indicando el tag (si el release ya existe, reemplaza las
-# imágenes).
+# imágenes; las notas salen de .github/notas-release.md solo al crearlo).
 
 on:
   push:
@@ -110,7 +111,7 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             gh release upload $env:TAG @archivos --clobber
           } else {
-            gh release create $env:TAG @archivos --title "Entorno $env:TAG" --notes "Imágenes precompiladas del entorno de Windows (base y capa de compiladores). setup.ps1 las usa automáticamente en las instalaciones nuevas; también se pueden descomprimir para usar el entorno sin internet. Ver docs/instalacion/windows.md."
+            gh release create $env:TAG @archivos --title "Entorno $env:TAG" --notes-file .github/notas-release.md
           }
           if ($LASTEXITCODE -ne 0) { throw "No se pudo publicar el release $env:TAG" }
 
