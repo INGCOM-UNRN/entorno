@@ -43,7 +43,7 @@ $bashPath = Join-Path $msysDir "usr\bin\bash.exe"
 
 # Limpiar cache de pacman (.pkg.tar.zst descargados)
 Write-Host "* Limpiando cache de paquetes de pacman..."
-& $bashPath --login -c "pacman -Scc --noconfirm"
+& $bashPath --login -c "if [ -d /var/cache/pacman/pkg ]; then pacman -Scc --noconfirm; fi"
 
 # 3. Preparacion del directorio temporal de empaquetado
 $tempPackBase = Join-Path $portableRoot "temp_package"
